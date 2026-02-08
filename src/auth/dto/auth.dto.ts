@@ -1,4 +1,4 @@
-import { IsEmail, IsNotEmpty, IsString, MinLength, Matches, IsOptional, IsEnum, IsBoolean, IsIn } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsString, MinLength, Matches, IsOptional, IsBoolean, IsIn } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class RegisterDto {
@@ -24,9 +24,9 @@ export class RegisterDto {
   })
   password: string;
 
-  @ApiProperty({ enum: ['user', 'devl', 'admin'], example: 'user', description: 'User role', required: false })
+  @ApiProperty({ enum: ['user'], example: 'user', description: 'User role', required: false })
   @IsOptional()
-  @IsEnum(['user', 'devl', 'admin'], { message: 'Role must be user, devl, or admin' })
+  @IsIn(['user'])
   role?: string;
 
   @ApiProperty({ example: true, description: 'Remember me for persistent session', required: false })
@@ -67,6 +67,6 @@ export class GoogleLoginDto {
   })
   @IsOptional()
   @IsString()
-  @IsIn(['user', 'devl', 'admin'])
+  @IsIn(['user', 'dev', 'devl', 'admin'])
   role?: string;
 }

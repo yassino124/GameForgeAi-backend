@@ -40,6 +40,32 @@ export class AuthService {
     return null;
   }
 
+  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    const user = await this.userModel.findById(userId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (!user.password) {
+      throw new BadRequestException('Password change is not available for this account');
+    }
+
+    const ok = await bcrypt.compare(currentPassword, user.password);
+    if (!ok) {
+      throw new BadRequestException('Current password is incorrect');
+    }
+
+    const saltRounds = 12;
+    const hashed = await bcrypt.hash(newPassword, saltRounds);
+    user.password = hashed;
+    await user.save();
+
+    return {
+      success: true,
+      message: 'Password updated successfully',
+    };
+  }
+
   async login(loginDto: LoginDto, userAgent: string, ipAddress: string) {
     const { email, password, rememberMe = false } = loginDto;
     const user = await this.validateUser(email, password);
@@ -209,7 +235,7 @@ export class AuthService {
   }
 
   async register(registerDto: RegisterDto, userAgent: string, ipAddress: string) {
-    const { email, username, password, role = 'user', rememberMe = false } = registerDto;
+    const { email, username, password, rememberMe = false } = registerDto;
 
     const existingUser = await this.userModel.findOne({
       $or: [{ email }, { username }]
@@ -233,7 +259,7 @@ export class AuthService {
       email,
       username,
       password: hashedPassword,
-      role: role,
+      role: 'user',
       emailVerificationToken,
       emailVerificationExpires,
     });

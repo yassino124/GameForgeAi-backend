@@ -23,6 +23,7 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { FileInterceptor } from '@nestjs/platform-express';
 
@@ -66,7 +67,7 @@ export class AuthController {
                 id: { type: 'string', example: '64f8a1b2c3d4e5f6a7b8c9d0' },
                 email: { type: 'string', example: 'user@example.com' },
                 username: { type: 'string', example: 'gamedev' },
-                role: { type: 'string', example: 'user', enum: ['user', 'devl', 'admin'] },
+                role: { type: 'string', example: 'user', enum: ['user', 'dev', 'devl', 'admin'] },
                 subscription: { type: 'string', example: 'free' },
                 avatar: { type: 'string', example: '' },
               },
@@ -112,7 +113,7 @@ export class AuthController {
                 id: { type: 'string', example: '64f8a1b2c3d4e5f6a7b8c9d0' },
                 email: { type: 'string', example: 'user@example.com' },
                 username: { type: 'string', example: 'gamedev' },
-                role: { type: 'string', example: 'user', enum: ['user', 'devl', 'admin'] },
+                role: { type: 'string', example: 'user', enum: ['user', 'dev', 'devl', 'admin'] },
                 subscription: { type: 'string', example: 'free' },
                 avatar: { type: 'string', example: '' },
               },
@@ -160,7 +161,7 @@ export class AuthController {
                 id: { type: 'string', example: '64f8a1b2c3d4e5f6a7b8c9d0' },
                 email: { type: 'string', example: 'user@example.com' },
                 username: { type: 'string', example: 'gamedev' },
-                role: { type: 'string', example: 'user', enum: ['user', 'devl', 'admin'] },
+                role: { type: 'string', example: 'user', enum: ['user', 'dev', 'devl', 'admin'] },
                 subscription: { type: 'string', example: 'free' },
                 avatar: { type: 'string', example: '' },
                 projects: { type: 'array', items: { type: 'string' } },
@@ -198,7 +199,7 @@ export class AuthController {
                 id: { type: 'string', example: '64f8a1b2c3d4e5f6a7b8c9d0' },
                 email: { type: 'string', example: 'user@example.com' },
                 username: { type: 'string', example: 'gamedev' },
-                role: { type: 'string', example: 'user', enum: ['user', 'devl', 'admin'] },
+                role: { type: 'string', example: 'user', enum: ['user', 'dev', 'devl', 'admin'] },
                 subscription: { type: 'string', example: 'free' },
                 avatar: { type: 'string', example: '' },
               },
@@ -235,6 +236,18 @@ export class AuthController {
       throw new BadRequestException('avatar file is required');
     }
     return this.authService.updateAvatar(req.user.sub, file);
+  }
+
+  @Post('change-password')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Change password for the current user' })
+  @ApiResponse({ status: 200, description: 'Password updated successfully' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 400, description: 'Bad Request - Invalid current password' })
+  async changePassword(@Request() req, @Body() dto: ChangePasswordDto) {
+    return this.authService.changePassword(req.user.sub, dto.currentPassword, dto.newPassword);
   }
 
   @Get('sessions')

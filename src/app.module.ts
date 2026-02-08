@@ -4,6 +4,10 @@ import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { AdminModule } from './admin/admin.module';
+import { BillingModule } from './billing/billing.module';
+import { AssetsModule } from './assets/assets.module';
+import { TemplatesModule } from './templates/templates.module';
+import { ProjectsModule } from './projects/projects.module';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import configuration from './config/configuration';
@@ -24,6 +28,10 @@ import configuration from './config/configuration';
     AuthModule,
     UsersModule,
     AdminModule,
+    BillingModule,
+    AssetsModule,
+    TemplatesModule,
+    ProjectsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

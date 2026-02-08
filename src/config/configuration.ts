@@ -32,6 +32,44 @@ export default () => ({
     apiSecret: process.env.CLOUDINARY_API_SECRET,
     avatarFolder: process.env.CLOUDINARY_AVATAR_FOLDER || 'gameforge/avatars',
   },
+
+  stripe: {
+    secretKey: process.env.STRIPE_SECRET_KEY,
+    publishableKey: process.env.STRIPE_PUBLISHABLE_KEY,
+    apiVersion: process.env.STRIPE_API_VERSION,
+    currency: process.env.STRIPE_CURRENCY || 'usd',
+    webhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
+    successUrl: process.env.STRIPE_SUCCESS_URL,
+    cancelUrl: process.env.STRIPE_CANCEL_URL,
+    portalReturnUrl: process.env.STRIPE_PORTAL_RETURN_URL,
+    connectEnabled: process.env.STRIPE_CONNECT_ENABLED === 'true',
+    platformCommissionPercentage: process.env.PLATFORM_COMMISSION_PERCENTAGE
+      ? parseFloat(process.env.PLATFORM_COMMISSION_PERCENTAGE)
+      : undefined,
+  },
+
+  storage: {
+    local: {
+      baseDir: process.env.LOCAL_ASSETS_DIR,
+    },
+    templates: {
+      baseDir: process.env.LOCAL_TEMPLATES_DIR,
+    },
+    projects: {
+      baseDir: process.env.LOCAL_PROJECTS_DIR,
+    },
+    s3: {
+      endpoint: process.env.S3_ENDPOINT,
+      region: process.env.S3_REGION || 'auto',
+      bucket: process.env.S3_BUCKET,
+      accessKeyId: process.env.S3_ACCESS_KEY_ID,
+      secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
+      publicBaseUrl: process.env.S3_PUBLIC_BASE_URL,
+      signedUrlExpiresSeconds: process.env.S3_SIGNED_URL_EXPIRES_SECONDS
+        ? parseInt(process.env.S3_SIGNED_URL_EXPIRES_SECONDS, 10)
+        : 300,
+    },
+  },
   
   api: {
     prefix: process.env.API_PREFIX || 'api/v1',

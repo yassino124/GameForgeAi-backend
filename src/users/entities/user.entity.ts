@@ -46,8 +46,8 @@ export class User {
   @Prop({ enum: ['free', 'pro', 'enterprise'], default: 'free' })
   subscription: string;
 
-  @ApiProperty({ enum: ['user', 'devl', 'admin'], example: 'user', description: 'User role' })
-  @Prop({ enum: ['user', 'devl', 'admin'], default: 'user' })
+  @ApiProperty({ enum: ['user', 'dev', 'devl', 'admin'], example: 'user', description: 'User role' })
+  @Prop({ enum: ['user', 'dev', 'devl', 'admin'], default: 'user' })
   role: string;
 
   @ApiProperty({ example: '2024-01-01T00:00:00.000Z', description: 'Subscription expiration date' })

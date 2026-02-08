@@ -37,7 +37,7 @@ export class AdminController {
   }
 
   @Get('dev-tools')
-  @Roles('admin', 'devl')
+  @Roles('admin', 'dev', 'devl')
   @ApiOperation({ summary: 'Get development tools' })
   @ApiResponse({ status: 200, description: 'Development tools accessible' })
   @ApiResponse({ status: 403, description: 'Forbidden - Dev or Admin access required' })
