@@ -116,7 +116,7 @@ export class AssetsController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get download url (local)' })
   async downloadUrl(@Req() req: any, @Param('id') id: string) {
-    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const baseUrl = `${req.protocol}://${req.get('host')}/api`;
     return this.assetsService.getAssetDownloadUrl(req.user.sub, id, baseUrl);
   }
 
@@ -191,7 +191,7 @@ export class AssetsController {
   @Roles('admin', 'dev', 'devl', 'user')
   @ApiBearerAuth()
   async getExportDownloadUrl(@Req() req: any, @Param('id') id: string) {
-    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const baseUrl = `${req.protocol}://${req.get('host')}/api`;
     return this.assetsService.getExportDownloadUrl(req.user.sub, id, baseUrl);
   }
 }
