@@ -3,6 +3,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { CommonModule } from '../common/common.module';
 import { TemplatesModule } from '../templates/templates.module';
 import { AssetsModule } from '../assets/assets.module';
+import { AiModule } from '../ai/ai.module';
 import { GameProject, GameProjectSchema } from './schemas/game-project.schema';
 import { UnityTemplate, UnityTemplateSchema } from '../templates/schemas/unity-template.schema';
 import { Asset, AssetSchema } from '../assets/schemas/asset.schema';
@@ -20,6 +21,7 @@ import { ProjectStorageService } from './project-storage.service';
     CommonModule,
     TemplatesModule,
     AssetsModule,
+    AiModule,
   ],
   controllers: [ProjectsController],
   providers: [ProjectsService, ProjectStorageService],

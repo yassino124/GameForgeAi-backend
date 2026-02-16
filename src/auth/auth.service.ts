@@ -31,6 +31,56 @@ export class AuthService {
     return this._googleClient;
   }
 
+  private getGoogleWebOAuthClient(): OAuth2Client {
+    const clientId = this.configService.get<string>('google.clientId') || '';
+    const clientSecret = this.configService.get<string>('google.clientSecret') || '';
+    const callbackUrl = this.configService.get<string>('google.callbackUrl') || '';
+
+    if (!clientId.trim() || !clientSecret.trim() || !callbackUrl.trim()) {
+      throw new UnauthorizedException('Google OAuth is not configured');
+    }
+
+    return new OAuth2Client(clientId.trim(), clientSecret.trim(), callbackUrl.trim());
+  }
+
+  getGoogleOAuthUrl(params?: { state?: string }) {
+    const client = this.getGoogleWebOAuthClient();
+    const url = client.generateAuthUrl({
+      access_type: 'offline',
+      prompt: 'consent',
+      scope: ['openid', 'email', 'profile'],
+      state: params?.state,
+    });
+    return { success: true, data: { url } };
+  }
+
+  async googleLoginWithAuthCode(
+    code: string,
+    deviceInfo: { userAgent: string; ipAddress: string },
+    opts?: { rememberMe?: boolean; role?: string },
+  ) {
+    if (!code || !String(code).trim()) {
+      throw new BadRequestException('Missing code');
+    }
+
+    const client = this.getGoogleWebOAuthClient();
+    const { tokens } = await client.getToken(String(code).trim());
+    const idToken = tokens.id_token;
+    if (!idToken) {
+      throw new UnauthorizedException('Missing Google id_token');
+    }
+
+    return this.googleLoginWithIdToken(
+      {
+        idToken,
+        rememberMe: opts?.rememberMe ?? true,
+        role: opts?.role as any,
+      },
+      deviceInfo.userAgent,
+      deviceInfo.ipAddress,
+    );
+  }
+
   async validateUser(email: string, password: string): Promise<any> {
     const user = await this.userModel.findOne({ email });
     if (user && user.password && await bcrypt.compare(password, user.password)) {
@@ -259,7 +309,7 @@ export class AuthService {
       email,
       username,
       password: hashedPassword,
-      role: 'user',
+      role: registerDto.role || 'user',
       emailVerificationToken,
       emailVerificationExpires,
     });

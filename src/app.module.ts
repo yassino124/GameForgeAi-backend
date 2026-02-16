@@ -8,6 +8,10 @@ import { BillingModule } from './billing/billing.module';
 import { AssetsModule } from './assets/assets.module';
 import { TemplatesModule } from './templates/templates.module';
 import { ProjectsModule } from './projects/projects.module';
+import { AiModule } from './ai/ai.module';
+import { AiGameOrchestratorModule } from './ai-game-orchestrator/ai-game-orchestrator.module';
+import { CoachModule } from './coach/coach.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import configuration from './config/configuration';
@@ -32,6 +36,10 @@ import configuration from './config/configuration';
     AssetsModule,
     TemplatesModule,
     ProjectsModule,
+    AiModule,
+    AiGameOrchestratorModule,
+    CoachModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

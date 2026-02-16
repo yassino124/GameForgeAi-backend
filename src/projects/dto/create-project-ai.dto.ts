@@ -2,8 +2,8 @@ import {
   ArrayMaxSize,
   IsArray,
   IsHexColor,
-  IsIn,
   IsNumber,
+  IsObject,
   IsOptional,
   IsBoolean,
   IsString,
@@ -12,21 +12,23 @@ import {
   Min,
 } from 'class-validator';
 
-export class UpdateProjectDto {
+export class CreateProjectAiDto {
+  @IsString()
+  @MaxLength(4000)
+  prompt: string;
+
+  @IsOptional()
+  @IsObject()
+  runtimeConfig?: Record<string, any>;
+
   @IsOptional()
   @IsString()
-  @IsIn(['webgl', 'android_apk', 'android'])
+  @MaxLength(30)
   buildTarget?: string;
 
   @IsOptional()
   @IsString()
-  @MaxLength(80)
-  name?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(500)
-  description?: string;
+  templateId?: string;
 
   @IsOptional()
   @IsNumber()

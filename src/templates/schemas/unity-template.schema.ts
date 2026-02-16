@@ -43,6 +43,22 @@ export class UnityTemplate {
 
   @Prop()
   previewVideoUrl?: string;
+
+  @Prop({ type: Object })
+  aiMetadata?: {
+    description?: string;
+    category?: string;
+    type?: string;
+    tags?: string[];
+    mediaPrompts?: {
+      cover?: string;
+      screenshots?: string[];
+      video?: string;
+    };
+  };
+
+  @Prop()
+  aiGeneratedAt?: Date;
 }
 
 export const UnityTemplateSchema = SchemaFactory.createForClass(UnityTemplate);

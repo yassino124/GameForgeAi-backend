@@ -15,6 +15,17 @@ export default () => ({
   google: {
     clientId: process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    callbackUrl: process.env.GOOGLE_CALLBACK_URL,
+  },
+
+  gemini: {
+    apiKey: process.env.GEMINI_API_KEY,
+    model: process.env.GEMINI_MODEL,
+  },
+
+  ollama: {
+    baseUrl: process.env.OLLAMA_BASE_URL,
+    model: process.env.OLLAMA_MODEL,
   },
 
   email: {

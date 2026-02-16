@@ -13,6 +13,8 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  Query,
+  Res,
   UploadedFile,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
@@ -26,6 +28,7 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { FileInterceptor } from '@nestjs/platform-express';
+import type { Response } from 'express';
 
 const { memoryStorage } = require('multer');
 
@@ -139,6 +142,32 @@ export class AuthController {
       deviceInfo.userAgent,
       deviceInfo.ipAddress,
     );
+  }
+
+  @Get('google')
+  @ApiOperation({ summary: 'Start Google OAuth (web)' })
+  async googleOAuth(@Query('state') state: string | undefined, @Res() res: Response) {
+    const r = this.authService.getGoogleOAuthUrl({ state });
+    return res.redirect(r.data.url);
+  }
+
+  @Get('google/callback')
+  @ApiOperation({ summary: 'Google OAuth callback (web)' })
+  async googleOAuthCallback(
+    @Request() req,
+    @Query('code') code: string,
+    @Query('rememberMe') rememberMe: string | undefined,
+    @Query('role') role: string | undefined,
+  ) {
+    if (!code) {
+      throw new BadRequestException('Missing code');
+    }
+    const deviceInfo = this.sessionsService.extractDeviceInfo(req);
+    const remember = rememberMe == null ? undefined : rememberMe === 'true' || rememberMe === '1';
+    return this.authService.googleLoginWithAuthCode(code, deviceInfo, {
+      rememberMe: remember,
+      role,
+    });
   }
 
   @Get('profile')
