@@ -22,6 +22,9 @@ export class GameProject {
   @Prop({ default: 'queued' })
   status: ProjectStatus;
 
+  @Prop({ default: 'webgl' })
+  buildTarget: string;
+
   @Prop()
   assetsCollectionId?: string;
 
@@ -29,7 +32,19 @@ export class GameProject {
   resultStorageKey?: string;
 
   @Prop()
+  webglZipStorageKey?: string;
+
+  @Prop()
+  androidApkStorageKey?: string;
+
+  @Prop()
+  webglIndexStorageKey?: string;
+
+  @Prop()
   error?: string;
+
+  @Prop()
+  buildLogLastLine?: string;
 
   @Prop()
   previewImageUrl?: string;
@@ -39,6 +54,52 @@ export class GameProject {
 
   @Prop()
   previewVideoUrl?: string;
+
+  @Prop({ type: Object })
+  aiMetadata?: {
+    description?: string;
+    type?: string;
+    tags?: string[];
+    mediaPrompts?: {
+      cover?: string;
+      screenshots?: string[];
+      video?: string;
+    };
+  };
+
+  @Prop({ type: Object })
+  aiUnityConfig?: {
+    timeScale?: number;
+    difficulty?: number;
+    theme?: string;
+    notes?: string;
+
+    speed?: number;
+    genre?: string;
+    assetsType?: string;
+    mechanics?: string[];
+    primaryColor?: string;
+    secondaryColor?: string;
+    accentColor?: string;
+    playerColor?: string;
+
+    fogEnabled?: boolean;
+    fogDensity?: number;
+    cameraZoom?: number;
+    gravityY?: number;
+    jumpForce?: number;
+  };
+
+  @Prop()
+  aiGeneratedAt?: Date;
+
+  @Prop({ type: Object })
+  buildTimings?: {
+    startedAt?: string;
+    finishedAt?: string;
+    durationMs?: number;
+    steps?: Record<string, number>;
+  };
 }
 
 export const GameProjectSchema = SchemaFactory.createForClass(GameProject);

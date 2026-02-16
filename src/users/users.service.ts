@@ -85,4 +85,21 @@ export class UsersService {
 
     await this.userModel.findByIdAndDelete(userId);
   }
+
+  async listUserIdsByRoles(roles: string[]) {
+    const normalized = Array.isArray(roles)
+      ? roles
+          .map((r) => String(r || '').trim().toLowerCase())
+          .filter(Boolean)
+      : [];
+
+    if (!normalized.length) return [];
+
+    const items = await this.userModel
+      .find({ role: { $in: normalized }, isActive: true })
+      .select({ _id: 1 })
+      .lean();
+
+    return items.map((u: any) => u._id?.toString()).filter(Boolean);
+  }
 }

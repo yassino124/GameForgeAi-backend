@@ -24,9 +24,9 @@ export class RegisterDto {
   })
   password: string;
 
-  @ApiProperty({ enum: ['user'], example: 'user', description: 'User role', required: false })
+  @ApiProperty({ enum: ['user', 'devl'], example: 'user', description: 'User role', required: false })
   @IsOptional()
-  @IsIn(['user'])
+  @IsIn(['user', 'devl'])
   role?: string;
 
   @ApiProperty({ example: true, description: 'Remember me for persistent session', required: false })
@@ -67,6 +67,6 @@ export class GoogleLoginDto {
   })
   @IsOptional()
   @IsString()
-  @IsIn(['user', 'dev', 'devl', 'admin'])
+  @IsIn(['user', 'devl'])
   role?: string;
 }

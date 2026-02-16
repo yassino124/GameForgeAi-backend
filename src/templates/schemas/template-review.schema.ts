@@ -14,6 +14,15 @@ export class TemplateReview {
   @Prop({ required: true })
   username: string;
 
+  @Prop({ required: true, enum: ['pending', 'approved'], default: 'approved', index: true })
+  status: 'pending' | 'approved';
+
+  @Prop({ type: Date, default: null })
+  approvedAt?: Date;
+
+  @Prop({ type: String, default: null })
+  approvedBy?: string;
+
   @Prop({ required: true, min: 1, max: 5 })
   rating: number;
 
@@ -24,3 +33,5 @@ export class TemplateReview {
 export const TemplateReviewSchema = SchemaFactory.createForClass(TemplateReview);
 
 TemplateReviewSchema.index({ templateId: 1, userId: 1 }, { unique: true });
+
+TemplateReviewSchema.index({ templateId: 1, status: 1, createdAt: -1 });

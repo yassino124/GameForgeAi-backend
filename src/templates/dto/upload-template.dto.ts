@@ -2,9 +2,10 @@ import { Type } from 'class-transformer';
 import { IsNumber, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class UploadTemplateDto {
+  @IsOptional()
   @IsString()
   @MaxLength(80)
-  name: string;
+  name?: string;
 
   @IsOptional()
   @IsString()

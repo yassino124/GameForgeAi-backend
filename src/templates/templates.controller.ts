@@ -20,6 +20,7 @@ import type { Response } from 'express';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { GenerateAiDto } from '../ai/dto/generate-ai.dto';
 import { CreateTemplateReviewDto } from './dto/create-template-review.dto';
 import { ConfirmTemplatePurchaseDto } from './dto/confirm-template-purchase.dto';
 import { UploadTemplateDto } from './dto/upload-template.dto';
@@ -63,6 +64,21 @@ export class TemplatesController {
       templateId: id,
       userId: req.user.sub,
       customerEmail: req.user.email,
+    });
+  }
+
+  @Post(':id/ai/generate')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'dev', 'devl')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Generate template description/tags/category and media prompts using Gemini' })
+  async generateAi(@Req() req: any, @Param('id') id: string, @Body() dto: GenerateAiDto) {
+    return this.templatesService.generateAiMetadata({
+      templateId: id,
+      ownerId: req.user.sub,
+      allowNonOwner: true,
+      notes: dto.notes,
+      overwrite: dto.overwrite,
     });
   }
 
@@ -119,6 +135,15 @@ export class TemplatesController {
     return this.templatesService.listPublicReviews(id);
   }
 
+  @Get(':id/reviews/pending')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'dev', 'devl')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'List pending reviews for a template (admin/dev only)' })
+  async listPendingReviews(@Param('id') id: string) {
+    return this.templatesService.listPendingReviews({ templateId: id });
+  }
+
   @Post(':id/reviews')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -130,6 +155,19 @@ export class TemplatesController {
       username: req.user.username,
       rating: dto.rating,
       comment: dto.comment,
+    });
+  }
+
+  @Post(':id/reviews/:userId/approve')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'dev', 'devl')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Approve a pending review (admin/dev only)' })
+  async approveReview(@Req() req: any, @Param('id') id: string, @Param('userId') userId: string) {
+    return this.templatesService.approveReview({
+      templateId: id,
+      userId,
+      approvedBy: req.user.sub,
     });
   }
 
