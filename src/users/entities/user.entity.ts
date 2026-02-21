@@ -62,6 +62,14 @@ export class User {
   @Prop({ default: true })
   isActive: boolean;
 
+  @ApiProperty({ enum: ['active', 'suspended', 'banned'], example: 'active', description: 'User account status' })
+  @Prop({ enum: ['active', 'suspended', 'banned'], default: 'active' })
+  status: string;
+
+  @ApiProperty({ example: '2024-01-01T00:00:00.000Z', description: 'Soft delete timestamp' })
+  @Prop({ default: null })
+  deletedAt: Date;
+
   @ApiProperty({ example: '2024-01-01T00:00:00.000Z', description: 'Last login date' })
   @Prop({ default: Date.now })
   lastLogin: Date;
