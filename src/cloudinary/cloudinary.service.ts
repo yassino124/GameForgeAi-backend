@@ -7,6 +7,8 @@ const cloudinary = require('cloudinary').v2 as any;
 @Injectable()
 export class CloudinaryService {
   constructor(private readonly configService: ConfigService) {
+    console.log('ENV CHECK:', process.env.CLOUDINARY_CLOUD_NAME);
+    
     const cloudName = this.configService.get<string>('cloudinary.cloudName');
     const apiKey = this.configService.get<string>('cloudinary.apiKey');
     const apiSecret = this.configService.get<string>('cloudinary.apiSecret');

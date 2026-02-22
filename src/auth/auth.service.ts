@@ -391,6 +391,13 @@ export class AuthService {
 
   async updateProfile(userId: string, updateData: any) {
     const { username, avatar, fullName, bio, location, website } = updateData as any;
+    
+    // Remove undefined/null/empty string values to avoid validation errors
+    Object.keys(updateData).forEach(key => {
+      if (updateData[key] === undefined || updateData[key] === null || updateData[key] === '') {
+        delete updateData[key];
+      }
+    });
 
     const normalizedUsername = typeof username === 'string' ? username.trim() : '';
 
