@@ -3,12 +3,19 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagg
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import { User, UserSchema } from '../users/entities/user.entity';
 
 @ApiTags('Admin')
 @Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @ApiBearerAuth()
 export class AdminController {
+  constructor(
+    @InjectModel(User.name)
+    private readonly userModel: Model<User>,
+  ) {}
   
   @Get('dashboard')
   @Roles('admin')
@@ -16,8 +23,42 @@ export class AdminController {
   @ApiResponse({ status: 200, description: 'Admin dashboard data' })
   @ApiResponse({ status: 403, description: 'Forbidden - Admin access required' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  getAdminDashboard(@Request() req) {
-    return {
+  async getAdminDashboard(@Request() req) {
+    // Calculate total users
+    const totalUsers = await this.userModel.countDocuments();
+    
+    // Calculate users from last 30 days
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    const usersLast30Days = await this.userModel.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: thirtyDaysAgo }
+        }
+      },
+      {
+        $group: {
+          _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]);
+
+    // Calculate previous month users for change percentage
+    const sixtyDaysAgo = new Date();
+    sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+    const previousMonthUsers = await this.userModel.countDocuments({
+      createdAt: { $gte: sixtyDaysAgo, $lt: thirtyDaysAgo }
+    });
+    
+    const currentMonthUsers = usersLast30Days.reduce((sum, day) => sum + day.count, 0);
+    const totalUsersChange = previousMonthUsers === 0 
+      ? '+100%' 
+      : `+${((currentMonthUsers - previousMonthUsers) / previousMonthUsers * 100).toFixed(1)}%`;
+
+    const response = {
       success: true,
       message: 'Welcome to admin dashboard',
       data: {
@@ -28,12 +69,15 @@ export class AdminController {
           role: req.user.role,
         },
         dashboard: {
-          totalUsers: 150,
+          totalUsers,
+          totalUsersChange,
+          newUsersLast30Days: usersLast30Days,
           activeProjects: 45,
           systemStatus: 'healthy',
         },
       },
     };
+    return response;
   }
 
   @Get('dev-tools')
