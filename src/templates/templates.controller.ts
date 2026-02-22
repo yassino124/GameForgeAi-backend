@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   Req,
@@ -221,6 +222,23 @@ export class TemplatesController {
       screenshots,
       previewVideo,
       baseUrl,
+      name: dto.name,
+      description: dto.description,
+      category: dto.category,
+      tagsCsv: dto.tags,
+      price: dto.price,
+    });
+  }
+
+  @Patch(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'dev', 'devl')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update template metadata (name, description, category, tags, price)' })
+  async update(@Req() req: any, @Param('id') id: string, @Body() dto: any) {
+    return this.templatesService.updateTemplateMetadata({
+      templateId: id,
+      ownerId: req.user.sub,
       name: dto.name,
       description: dto.description,
       category: dto.category,

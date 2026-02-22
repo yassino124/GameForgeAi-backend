@@ -850,6 +850,41 @@ namespace GameForge {
     return { success: true, data: updated };
   }
 
+  async updateTemplateMetadata(params: {
+    templateId: string;
+    ownerId: string;
+    name?: string;
+    description?: string;
+    category?: string;
+    tagsCsv?: string;
+    price?: number;
+  }) {
+    const t = await this.templateModel.findById(params.templateId);
+    if (!t) throw new NotFoundException('Template not found');
+    
+    // Verify ownership
+    if (t.ownerId !== params.ownerId) {
+      throw new ForbiddenException('Not authorized to update this template');
+    }
+
+    // Update allowed fields
+    if (params.name !== undefined) t.name = params.name;
+    if (params.description !== undefined) t.description = params.description;
+    if (params.category !== undefined) t.category = params.category;
+    if (params.price !== undefined) t.price = params.price;
+    
+    // Parse tags if provided
+    if (params.tagsCsv !== undefined) {
+      t.tags = params.tagsCsv
+        .split(',')
+        .map((tag: string) => tag.trim())
+        .filter((tag: string) => tag.length > 0);
+    }
+
+    const updated = await t.save();
+    return { success: true, data: updated };
+  }
+
   async listPublic(query: any) {
     const filter: any = { isPublic: true };
     if (query.category) filter.category = String(query.category);
