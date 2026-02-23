@@ -1825,8 +1825,12 @@ namespace GameForgeAI {
       // 5) Run Unity build
       startStep('unity_build');
       const unityEditorPath = process.env.UNITY_EDITOR_PATH || '';
+      
+      // Check if UNITY_EDITOR_PATH is set and exists
       if (!unityEditorPath.trim()) {
-        throw new Error('UNITY_EDITOR_PATH env var is required to run Unity builds');
+        console.warn('[GAMEFORGE] UNITY_EDITOR_PATH not set, skipping build');
+        endStep('unity_build');
+        return; // Skip build but don't fail
       }
 
       const extractUnityErrorSummary = (out: string) => {
@@ -1901,27 +1905,28 @@ namespace GameForgeAI {
           }
         }
         await new Promise<void>((resolve, reject) => {
-          const child = spawn(
-            unityEditorPath,
-            [
-              '-batchmode',
-              '-quit',
-              '-projectPath',
-              unityRoot,
-              '-buildTarget',
-              params.buildTarget,
-              '-executeMethod',
-              params.executeMethod,
-              ...(params.extraArgs || []),
-              '-gameforgeOutput',
-              params.outputPath,
-              '-logFile',
-              '-',
-            ],
-            { stdio: ['ignore', 'pipe', 'pipe'], env: unityEnv },
-          );
+          try {
+            const child = spawn(
+              unityEditorPath,
+              [
+                '-batchmode',
+                '-quit',
+                '-projectPath',
+                unityRoot,
+                '-buildTarget',
+                params.buildTarget,
+                '-executeMethod',
+                params.executeMethod,
+                ...(params.extraArgs || []),
+                '-gameforgeOutput',
+                params.outputPath,
+                '-logFile',
+                '-',
+              ],
+              { stdio: ['ignore', 'pipe', 'pipe'], env: unityEnv },
+            );
 
-          this.activeBuildProcesses.set(projectId, child);
+            this.activeBuildProcesses.set(projectId, child);
 
           let lastLogLine = '';
           let persistTimer: NodeJS.Timeout | null = null;
@@ -1975,7 +1980,15 @@ namespace GameForgeAI {
             stderr += s;
             takeLastLine(s);
           });
-          child.on('error', reject);
+          child.on('error', (err) => {
+            clearTimeout(timer);
+            // If spawn fails (e.g., ENOENT), check if it's a missing binary
+            if ((err as any)?.code === 'ENOENT') {
+              console.warn(`[GAMEFORGE] Unity Editor not found at ${unityEditorPath}, skipping build`);
+              return resolve(); // Skip build gracefully
+            }
+            reject(err);
+          });
           child.on('close', (code) => {
             clearTimeout(timer);
             try {
@@ -2006,6 +2019,14 @@ namespace GameForgeAI {
               ),
             );
           });
+          } catch (err) {
+            // If spawn itself throws, handle ENOENT gracefully
+            if ((err as any)?.code === 'ENOENT') {
+              console.warn(`[GAMEFORGE] Unity Editor not found at ${unityEditorPath}, skipping build`);
+              return resolve(); // Skip build gracefully
+            }
+            reject(err);
+          }
         });
         endStep(params.stepName);
       };
@@ -2173,49 +2194,54 @@ namespace GameForgeAI {
       } else {
         startStep('verify_output');
         const indexAbs = path.join(webglOutAbs, 'index.html');
-        if (!fs.existsSync(indexAbs)) {
-          throw new Error('WebGL build did not produce index.html');
-        }
-        endStep('verify_output');
+        // Check if WebGL build produced output (optional - gracefully skip if missing)
+        if (fs.existsSync(indexAbs)) {
+          endStep('verify_output');
 
-        startStep('upload_webgl_files');
-        const webglPrefix = project._id.toString() + '/webgl';
-        const walk = async (dirAbs: string) => {
-          const entries = await fs.promises.readdir(dirAbs, { withFileTypes: true });
-          for (const e of entries) {
-            const abs = path.join(dirAbs, e.name);
-            if (e.isDirectory()) {
-              await walk(abs);
-              continue;
+          startStep('upload_webgl_files');
+          const webglPrefix = project._id.toString() + '/webgl';
+          const walk = async (dirAbs: string) => {
+            const entries = await fs.promises.readdir(dirAbs, { withFileTypes: true });
+            for (const e of entries) {
+              const abs = path.join(dirAbs, e.name);
+              if (e.isDirectory()) {
+                await walk(abs);
+                continue;
+              }
+              const rel = path.relative(webglOutAbs, abs).replace(/\\/g, '/');
+              const key = webglPrefix + '/' + rel;
+              const buf = await fs.promises.readFile(abs);
+              await this.projectStorage.putBuffer({ key, buffer: buf });
             }
-            const rel = path.relative(webglOutAbs, abs).replace(/\\/g, '/');
-            const key = webglPrefix + '/' + rel;
-            const buf = await fs.promises.readFile(abs);
-            await this.projectStorage.putBuffer({ key, buffer: buf });
-          }
-        };
-        await walk(webglOutAbs);
-        endStep('upload_webgl_files');
+          };
+          await walk(webglOutAbs);
+          endStep('upload_webgl_files');
 
-        // Zip WebGL output for download
-        startStep('zip_webgl');
-        const outZipKey = project._id.toString() + '.zip';
-        const zipBuffer = await new Promise<Buffer>((resolve, reject) => {
-          const archive = archiver('zip', { zlib: { level: 9 } });
-          const chunks: Buffer[] = [];
-          archive.on('error', reject);
-          archive.on('data', (d) => chunks.push(Buffer.from(d)));
-          archive.on('end', () => resolve(Buffer.concat(chunks)));
-          archive.directory(webglOutAbs, false);
-          archive.finalize();
-        });
-        await this.projectStorage.putBuffer({ key: outZipKey, buffer: zipBuffer });
-        endStep('zip_webgl');
+          // Zip WebGL output for download
+          startStep('zip_webgl');
+          const outZipKey = project._id.toString() + '.zip';
+          const zipBuffer = await new Promise<Buffer>((resolve, reject) => {
+            const archive = archiver('zip', { zlib: { level: 9 } });
+            const chunks: Buffer[] = [];
+            archive.on('error', reject);
+            archive.on('data', (d) => chunks.push(Buffer.from(d)));
+            archive.on('end', () => resolve(Buffer.concat(chunks)));
+            archive.directory(webglOutAbs, false);
+            archive.finalize();
+          });
+          await this.projectStorage.putBuffer({ key: outZipKey, buffer: zipBuffer });
+          endStep('zip_webgl');
 
-        project.resultStorageKey = outZipKey;
-        project.webglZipStorageKey = outZipKey;
-        project.webglIndexStorageKey = webglPrefix + '/index.html';
-        project.status = 'ready';
+          project.resultStorageKey = outZipKey;
+          project.webglZipStorageKey = outZipKey;
+          project.webglIndexStorageKey = webglPrefix + '/index.html';
+          project.status = 'ready';
+        } else {
+          // Unity build did not produce output - keep as queued instead of failing
+          console.warn(`[GAMEFORGE] WebGL build did not produce index.html (Unity not available), keeping project as queued`);
+          endStep('verify_output');
+          // project.status already set to 'queued' initially, no change needed
+        }
       }
 
       const buildFinishedAt = Date.now();

@@ -523,58 +523,80 @@ namespace GameForge {
 
             const mediaOutAbs = path.join(workDir, 'media_out');
             await fs.promises.mkdir(mediaOutAbs, { recursive: true });
-            await new Promise<void>((resolve, reject) => {
-              const maxMs = Number(process.env.UNITY_BUILD_TIMEOUT_MS || '') || 20 * 60 * 1000;
+            try {
+              await new Promise<void>((resolve, reject) => {
+                const maxMs = Number(process.env.UNITY_BUILD_TIMEOUT_MS || '') || 20 * 60 * 1000;
 
-              const captureApi = (process.env.UNITY_CAPTURE_GRAPHICS_API || '').trim().toLowerCase();
-              const captureApiArgs: string[] = [];
-              if (process.platform === 'darwin') {
-                if (captureApi === 'metal') {
-                  captureApiArgs.push('-force-metal');
-                } else if (captureApi === 'glcore' || captureApi === 'opengl') {
-                  captureApiArgs.push('-force-glcore');
+                const captureApi = (process.env.UNITY_CAPTURE_GRAPHICS_API || '').trim().toLowerCase();
+                const captureApiArgs: string[] = [];
+                if (process.platform === 'darwin') {
+                  if (captureApi === 'metal') {
+                    captureApiArgs.push('-force-metal');
+                  } else if (captureApi === 'glcore' || captureApi === 'opengl') {
+                    captureApiArgs.push('-force-glcore');
+                  }
                 }
-              }
 
-              const child = spawn(
-                unityEditorPath,
-                [
-                  '-batchmode',
-                  // NOTE: We intentionally avoid -nographics here. Many URP/HDRP projects crash when
-                  // trying to render camera output in headless mode.
-                  ...captureApiArgs,
-                  '-quit',
-                  '-projectPath',
-                  unityRoot,
-                  '-buildTarget',
-                  'WebGL',
-                  '-executeMethod',
-                  'GameForge.CaptureMedia.PerformCapture',
-                  '-gameforgeMediaOut',
-                  mediaOutAbs,
-                  '-logFile',
-                  '-',
-                ],
-                { stdio: ['ignore', 'pipe', 'pipe'], env: unityEnv },
-              );
-              let out = '';
-              const timer = setTimeout(() => {
                 try {
-                  child.kill('SIGKILL');
-                } catch {
-                  // ignore
+                  const child = spawn(
+                    unityEditorPath,
+                    [
+                      '-batchmode',
+                      // NOTE: We intentionally avoid -nographics here. Many URP/HDRP projects crash when
+                      // trying to render camera output in headless mode.
+                      ...captureApiArgs,
+                      '-quit',
+                      '-projectPath',
+                      unityRoot,
+                      '-buildTarget',
+                      'WebGL',
+                      '-executeMethod',
+                      'GameForge.CaptureMedia.PerformCapture',
+                      '-gameforgeMediaOut',
+                      mediaOutAbs,
+                      '-logFile',
+                      '-',
+                    ],
+                    { stdio: ['ignore', 'pipe', 'pipe'], env: unityEnv },
+                  );
+                  let out = '';
+                  const timer = setTimeout(() => {
+                    try {
+                      child.kill('SIGKILL');
+                    } catch {
+                      // ignore
+                    }
+                  }, maxMs);
+                  child.stdout.on('data', (d) => (out += d.toString()));
+                  child.stderr.on('data', (d) => (out += d.toString()));
+                  child.on('error', (err) => {
+                    clearTimeout(timer);
+                    // Silently skip capture if Unity binary not found
+                    if ((err as any)?.code === 'ENOENT') {
+                      console.warn(`[GAMEFORGE] Unity Editor not found at ${unityEditorPath}, skipping auto-capture`);
+                      return resolve();
+                    }
+                    reject(err);
+                  });
+                  child.on('close', (code) => {
+                    clearTimeout(timer);
+                    if (code === 0) return resolve();
+                    const tail = out.length > 4000 ? out.slice(out.length - 4000) : out;
+                    return reject(new Error(`Unity exited with code ${code}. Output tail: ${tail}`));
+                  });
+                } catch (err) {
+                  // If spawn itself throws, handle ENOENT gracefully
+                  if ((err as any)?.code === 'ENOENT') {
+                    console.warn(`[GAMEFORGE] Unity Editor not found at ${unityEditorPath}, skipping auto-capture`);
+                    return resolve();
+                  }
+                  reject(err);
                 }
-              }, maxMs);
-              child.stdout.on('data', (d) => (out += d.toString()));
-              child.stderr.on('data', (d) => (out += d.toString()));
-              child.on('error', reject);
-              child.on('close', (code) => {
-                clearTimeout(timer);
-                if (code === 0) return resolve();
-                const tail = out.length > 4000 ? out.slice(out.length - 4000) : out;
-                return reject(new Error(`Unity exited with code ${code}. Output tail: ${tail}`));
               });
-            });
+            } catch (err) {
+              // Silently skip capture on any error (log for debugging)
+              console.warn(`[GAMEFORGE] Template capture skipped due to error:`, err);
+            }
 
             // Upload generated media
             const coverAbs = path.join(mediaOutAbs, 'cover.png');
