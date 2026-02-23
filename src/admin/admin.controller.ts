@@ -64,6 +64,37 @@ export class AdminController {
       ? '+100%' 
       : `+${((currentMonthUsers - previousMonthUsers) / previousMonthUsers * 100).toFixed(1)}%`;
 
+    // Calculate active projects (not failed)
+    const activeProjects = await this.projectModel.countDocuments({
+      status: { $nin: ['failed'] }
+    });
+
+    // Calculate total templates
+    const totalTemplates = await this.templateModel.countDocuments();
+
+    // Calculate builds today (since UTC 00:00)
+    const todayStart = new Date();
+    todayStart.setUTCHours(0, 0, 0, 0);
+    const buildsToday = await this.projectModel.countDocuments({
+      createdAt: { $gte: todayStart }
+    });
+
+    // Calculate builds last 30 days
+    const buildsLast30Days = await this.projectModel.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: thirtyDaysAgo }
+        }
+      },
+      {
+        $group: {
+          _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]);
+
     const response = {
       success: true,
       message: 'Welcome to admin dashboard',
@@ -78,8 +109,10 @@ export class AdminController {
           totalUsers,
           totalUsersChange,
           newUsersLast30Days: usersLast30Days,
-          activeProjects: 45,
-          systemStatus: 'healthy',
+          activeProjects,
+          totalTemplates,
+          buildsToday,
+          buildsLast30Days,
         },
       },
     };
@@ -170,6 +203,86 @@ export class AdminController {
       return {
         success: false,
         message: 'Failed to fetch projects',
+        error: error.message,
+      };
+    }
+  }
+
+  @Get('builds')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Get all builds with enriched data and summary counts' })
+  @ApiResponse({ status: 200, description: 'All builds with owner details and summary statistics' })
+  @ApiResponse({ status: 403, description: 'Forbidden - Admin access required' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async getAdminBuilds() {
+    try {
+      // 1. Fetch all projects (treats as builds)
+      const builds = await this.projectModel.find().lean().exec();
+
+      if (!builds || builds.length === 0) {
+        return {
+          success: true,
+          data: {
+            builds: [],
+            summary: {
+              total: 0,
+              success: 0,
+              failed: 0,
+              running: 0,
+              queued: 0,
+            },
+          },
+        };
+      }
+
+      // 2. Get unique owner IDs and fetch users
+      const uniqueOwnerIds = [...new Set(builds.map(b => b.ownerId.toString()))];
+      const owners = await this.userModel.find(
+        { _id: { $in: uniqueOwnerIds } },
+        { _id: 1, username: 1, email: 1 }
+      ).lean().exec();
+      
+      const ownerMap = new Map();
+      owners.forEach(owner => {
+        ownerMap.set(owner._id.toString(), `${owner.username} (${owner.email})`);
+      });
+
+      // 3. Enrich builds with owner display
+      const enrichedBuilds = builds.map(build => ({
+        _id: build._id,
+        name: build.name,
+        status: build.status, // queued, running, ready, failed
+        buildTarget: build.buildTarget,
+        ownerDisplay: ownerMap.get(build.ownerId.toString()) || build.ownerId.toString(),
+        buildTimings: {
+          startedAt: (build as any).buildStartedAt,
+          finishedAt: (build as any).buildFinishedAt,
+          durationMs: (build as any).buildDurationMs || 0,
+        },
+        error: build.error,
+        createdAt: (build as any).createdAt,
+      }));
+
+      // 4. Calculate summary counts
+      const summary = {
+        total: enrichedBuilds.length,
+        success: enrichedBuilds.filter(b => (b.status as string) === 'ready').length,
+        failed: enrichedBuilds.filter(b => (b.status as string) === 'failed').length,
+        running: enrichedBuilds.filter(b => (b.status as string) === 'running').length,
+        queued: enrichedBuilds.filter(b => (b.status as string) === 'queued').length,
+      };
+
+      return {
+        success: true,
+        data: {
+          builds: enrichedBuilds,
+          summary,
+        },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: 'Failed to fetch builds',
         error: error.message,
       };
     }
