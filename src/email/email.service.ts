@@ -57,32 +57,104 @@ export class EmailService {
     const mailOptions = {
       from: `"GameForge AI" <${this.configService.get<string>('email.user')}>`,
       to: email,
-      subject: 'Password Reset Request - GameForge AI',
+      subject: '🔐 Reset Your GameForge AI Password',
       html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <h2 style="color: #333; text-align: center;">GameForge AI - Password Reset</h2>
-          <p style="color: #666; line-height: 1.6;">
-            Hello,<br><br>
-            You requested a password reset for your GameForge AI account.<br>
-            Click the button below to reset your password:
-          </p>
-          <div style="text-align: center; margin: 30px 0;">
-            <a href="${resetUrl}" 
-               style="background-color: #007bff; color: white; padding: 12px 30px; 
-                      text-decoration: none; border-radius: 5px; display: inline-block;">
-              Reset Password
-            </a>
-          </div>
-          <p style="color: #666; line-height: 1.6;">
-            If you didn't request this password reset, you can safely ignore this email.<br>
-            The link will expire in 1 hour for security reasons.
-          </p>
-          <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
-          <p style="color: #999; font-size: 12px; text-align: center;">
-            This is an automated message from GameForge AI.<br>
-            Please do not reply to this email.
-          </p>
-        </div>
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        </head>
+        <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);">
+          <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%); padding: 40px 20px;">
+            <tr>
+              <td align="center">
+                <table width="600" cellpadding="0" cellspacing="0" border="0" style="background: #1F2937; border-radius: 16px; overflow: hidden; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);">
+                  <!-- Header with Gradient -->
+                  <tr>
+                    <td style="background: linear-gradient(135deg, #6366F1 0%, #A78BFA 100%); padding: 40px 30px; text-align: center;">
+                      <h1 style="margin: 0; color: #FFFFFF; font-size: 32px; font-weight: 700; letter-spacing: -0.5px;">
+                        🎮 GameForge AI
+                      </h1>
+                      <p style="margin: 8px 0 0 0; color: rgba(255, 255, 255, 0.9); font-size: 16px; font-weight: 500;">
+                        AI-Powered Game Development
+                      </p>
+                    </td>
+                  </tr>
+                  
+                  <!-- Content -->
+                  <tr>
+                    <td style="padding: 50px 40px;">
+                      <h2 style="margin: 0 0 20px 0; color: #F9FAFB; font-size: 26px; font-weight: 600; text-align: center;">
+                        Password Reset Request
+                      </h2>
+                      
+                      <p style="margin: 0 0 24px 0; color: #9CA3AF; font-size: 16px; line-height: 1.6;">
+                        Hello,
+                      </p>
+                      
+                      <p style="margin: 0 0 32px 0; color: #9CA3AF; font-size: 16px; line-height: 1.6;">
+                        We received a request to reset your GameForge AI password. Click the button below to create a new password:
+                      </p>
+                      
+                      <!-- CTA Button -->
+                      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 0 0 32px 0;">
+                        <tr>
+                          <td align="center">
+                            <a href="${resetUrl}" 
+                               style="display: inline-block; background: linear-gradient(135deg, #6366F1 0%, #A78BFA 100%); 
+                                      color: #FFFFFF; text-decoration: none; padding: 16px 48px; border-radius: 12px; 
+                                      font-size: 16px; font-weight: 600; box-shadow: 0 8px 24px rgba(99, 102, 241, 0.4);
+                                      transition: all 0.3s ease;">
+                              🔓 Reset My Password
+                            </a>
+                          </td>
+                        </tr>
+                      </table>
+                      
+                      <p style="margin: 0 0 16px 0; color: #9CA3AF; font-size: 14px; line-height: 1.6; text-align: center;">
+                        Or copy and paste this link into your browser:
+                      </p>
+                      
+                      <p style="margin: 0 0 32px 0; color: #6366F1; font-size: 13px; word-break: break-all; 
+                                background: rgba(99, 102, 241, 0.1); padding: 12px 16px; border-radius: 8px; border: 1px solid rgba(99, 102, 241, 0.2);">
+                        ${resetUrl}
+                      </p>
+                      
+                      <!-- Security Notice -->
+                      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background: rgba(239, 68, 68, 0.1); border-left: 4px solid #EF4444; border-radius: 8px; padding: 16px; margin-bottom: 24px;">
+                        <tr>
+                          <td>
+                            <p style="margin: 0; color: #F87171; font-size: 14px; font-weight: 600;">
+                              ⚠️ Security Notice
+                            </p>
+                            <p style="margin: 8px 0 0 0; color: #9CA3AF; font-size: 14px; line-height: 1.5;">
+                              This link will expire in <strong style="color: #F9FAFB;">1 hour</strong> for security reasons. If you didn't request this reset, please ignore this email or contact support if you're concerned.
+                            </p>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                  
+                  <!-- Footer -->
+                  <tr>
+                    <td style="background: #111827; padding: 30px 40px; border-top: 1px solid #374151;">
+                      <p style="margin: 0 0 12px 0; color: #6B7280; font-size: 13px; text-align: center; line-height: 1.5;">
+                        Need help? Contact us at <a href="mailto:support@gameforge.ai" style="color: #6366F1; text-decoration: none;">support@gameforge.ai</a>
+                      </p>
+                      <p style="margin: 0; color: #4B5563; font-size: 12px; text-align: center;">
+                        © 2026 GameForge AI. All rights reserved.<br>
+                        This is an automated message, please do not reply to this email.
+                      </p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </body>
+        </html>
       `,
     };
 
@@ -102,31 +174,145 @@ export class EmailService {
     const mailOptions = {
       from: `"GameForge AI" <${this.configService.get<string>('email.user')}>`,
       to: email,
-      subject: 'Verify Your Email - GameForge AI',
+      subject: '🎮 Welcome to GameForge AI - Verify Your Email',
       html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <h2 style="color: #333; text-align: center;">GameForge AI - Email Verification</h2>
-          <p style="color: #666; line-height: 1.6;">
-            Welcome to GameForge AI!<br><br>
-            Please verify your email address by clicking the button below:
-          </p>
-          <div style="text-align: center; margin: 30px 0;">
-            <a href="${verificationUrl}" 
-               style="background-color: #28a745; color: white; padding: 12px 30px; 
-                      text-decoration: none; border-radius: 5px; display: inline-block;">
-              Verify Email
-            </a>
-          </div>
-          <p style="color: #666; line-height: 1.6;">
-            If you didn't create an account with GameForge AI, you can safely ignore this email.<br>
-            The verification link will expire in 24 hours.
-          </p>
-          <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
-          <p style="color: #999; font-size: 12px; text-align: center;">
-            This is an automated message from GameForge AI.<br>
-            Please do not reply to this email.
-          </p>
-        </div>
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        </head>
+        <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);">
+          <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%); padding: 40px 20px;">
+            <tr>
+              <td align="center">
+                <table width="600" cellpadding="0" cellspacing="0" border="0" style="background: #1F2937; border-radius: 16px; overflow: hidden; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);">
+                  <!-- Header with Gradient -->
+                  <tr>
+                    <td style="background: linear-gradient(135deg, #10B981 0%, #34D399 100%); padding: 40px 30px; text-align: center;">
+                      <h1 style="margin: 0; color: #FFFFFF; font-size: 32px; font-weight: 700; letter-spacing: -0.5px;">
+                        🎮 GameForge AI
+                      </h1>
+                      <p style="margin: 8px 0 0 0; color: rgba(255, 255, 255, 0.9); font-size: 16px; font-weight: 500;">
+                        AI-Powered Game Development
+                      </p>
+                    </td>
+                  </tr>
+                  
+                  <!-- Content -->
+                  <tr>
+                    <td style="padding: 50px 40px;">
+                      <h2 style="margin: 0 0 20px 0; color: #F9FAFB; font-size: 26px; font-weight: 600; text-align: center;">
+                        Welcome to GameForge AI! 🚀
+                      </h2>
+                      
+                      <p style="margin: 0 0 24px 0; color: #9CA3AF; font-size: 16px; line-height: 1.6;">
+                        Hi there,
+                      </p>
+                      
+                      <p style="margin: 0 0 24px 0; color: #9CA3AF; font-size: 16px; line-height: 1.6;">
+                        Thank you for joining GameForge AI! We're excited to have you on board. To get started and unlock the full potential of AI-powered game development, please verify your email address.
+                      </p>
+                      
+                      <!-- CTA Button -->
+                      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 0 0 32px 0;">
+                        <tr>
+                          <td align="center">
+                            <a href="${verificationUrl}" 
+                               style="display: inline-block; background: linear-gradient(135deg, #10B981 0%, #34D399 100%); 
+                                      color: #FFFFFF; text-decoration: none; padding: 16px 48px; border-radius: 12px; 
+                                      font-size: 16px; font-weight: 600; box-shadow: 0 8px 24px rgba(16, 185, 129, 0.4);
+                                      transition: all 0.3s ease;">
+                              ✓ Verify My Email
+                            </a>
+                          </td>
+                        </tr>
+                      </table>
+                      
+                      <p style="margin: 0 0 16px 0; color: #9CA3AF; font-size: 14px; line-height: 1.6; text-align: center;">
+                        Or copy and paste this link into your browser:
+                      </p>
+                      
+                      <p style="margin: 0 0 32px 0; color: #10B981; font-size: 13px; word-break: break-all; 
+                                background: rgba(16, 185, 129, 0.1); padding: 12px 16px; border-radius: 8px; border: 1px solid rgba(16, 185, 129, 0.2);">
+                        ${verificationUrl}
+                      </p>
+                      
+                      <!-- Features Preview -->
+                      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background: rgba(99, 102, 241, 0.08); border-radius: 12px; padding: 24px; margin-bottom: 24px;">
+                        <tr>
+                          <td>
+                            <p style="margin: 0 0 16px 0; color: #F9FAFB; font-size: 16px; font-weight: 600; text-align: center;">
+                              🌟 What You Can Do with GameForge AI
+                            </p>
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                              <tr>
+                                <td style="padding: 8px 0;">
+                                  <p style="margin: 0; color: #9CA3AF; font-size: 14px; line-height: 1.6;">
+                                    <span style="color: #10B981; font-size: 16px;">✓</span> Create games with AI-powered assistance
+                                  </p>
+                                </td>
+                              </tr>
+                              <tr>
+                                <td style="padding: 8px 0;">
+                                  <p style="margin: 0; color: #9CA3AF; font-size: 14px; line-height: 1.6;">
+                                    <span style="color: #10B981; font-size: 16px;">✓</span> Browse and use professional templates
+                                  </p>
+                                </td>
+                              </tr>
+                              <tr>
+                                <td style="padding: 8px 0;">
+                                  <p style="margin: 0; color: #9CA3AF; font-size: 14px; line-height: 1.6;">
+                                    <span style="color: #10B981; font-size: 16px;">✓</span> Build and test your games instantly
+                                  </p>
+                                </td>
+                              </tr>
+                              <tr>
+                                <td style="padding: 8px 0;">
+                                  <p style="margin: 0; color: #9CA3AF; font-size: 14px; line-height: 1.6;">
+                                    <span style="color: #10B981; font-size: 16px;">✓</span> Get intelligent coaching and guidance
+                                  </p>
+                                </td>
+                              </tr>
+                            </table>
+                          </td>
+                        </tr>
+                      </table>
+                      
+                      <!-- Info Notice -->
+                      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background: rgba(59, 130, 246, 0.1); border-left: 4px solid #3B82F6; border-radius: 8px; padding: 16px; margin-bottom: 24px;">
+                        <tr>
+                          <td>
+                            <p style="margin: 0; color: #60A5FA; font-size: 14px; font-weight: 600;">
+                              ℹ️ Important
+                            </p>
+                            <p style="margin: 8px 0 0 0; color: #9CA3AF; font-size: 14px; line-height: 1.5;">
+                              This verification link will expire in <strong style="color: #F9FAFB;">24 hours</strong>. If you didn't create a GameForge AI account, you can safely ignore this email.
+                            </p>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                  
+                  <!-- Footer -->
+                  <tr>
+                    <td style="background: #111827; padding: 30px 40px; border-top: 1px solid #374151;">
+                      <p style="margin: 0 0 12px 0; color: #6B7280; font-size: 13px; text-align: center; line-height: 1.5;">
+                        Need help? Contact us at <a href="mailto:support@gameforge.ai" style="color: #10B981; text-decoration: none;">support@gameforge.ai</a>
+                      </p>
+                      <p style="margin: 0; color: #4B5563; font-size: 12px; text-align: center;">
+                        © 2026 GameForge AI. All rights reserved.<br>
+                        This is an automated message, please do not reply to this email.
+                      </p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </body>
+        </html>
       `,
     };
 

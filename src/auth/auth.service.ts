@@ -128,6 +128,15 @@ export class AuthService {
       throw new UnauthorizedException('Account is deactivated');
     }
 
+    // Check user status (suspended, banned)
+    const status = user.status || (user.isActive ? 'active' : 'suspended');
+    if (status === 'suspended') {
+      throw new UnauthorizedException('Account is suspended. Contact support to restore access.');
+    }
+    if (status === 'banned') {
+      throw new UnauthorizedException('Account is banned and cannot be restored.');
+    }
+
     // Update last login
     await this.userModel.findByIdAndUpdate(user._id, { lastLogin: new Date() });
 
@@ -236,6 +245,15 @@ export class AuthService {
       user.googleId = googleId;
       user.avatar = avatar || user.avatar;
       user.isEmailVerified = true;
+    }
+
+    // Check user status (suspended, banned)
+    const userStatus = user.status || (user.isActive ? 'active' : 'suspended');
+    if (userStatus === 'suspended') {
+      throw new UnauthorizedException('Account is suspended. Contact support to restore access.');
+    }
+    if (userStatus === 'banned') {
+      throw new UnauthorizedException('Account is banned and cannot be restored.');
     }
 
     await this.userModel.findByIdAndUpdate(user._id, { lastLogin: new Date() });

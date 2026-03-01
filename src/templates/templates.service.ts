@@ -253,8 +253,9 @@ export class TemplatesService {
       const needsPreview = !created.previewImageUrl || !String(created.previewImageUrl).trim();
       const needsShots = !Array.isArray((created as any).screenshotUrls) || (created as any).screenshotUrls.length === 0;
       const needsVideo = !created.previewVideoUrl || !String(created.previewVideoUrl).trim();
+      const autoMediaEnabled = String(process.env.UNITY_AUTO_MEDIA || '').trim().toLowerCase() === 'true';
 
-      if (needsPreview || needsShots || needsVideo) {
+      if ((needsPreview || needsShots || needsVideo) && autoMediaEnabled) {
         const unityEditorPath = (process.env.UNITY_EDITOR_PATH || '').trim();
         if (unityEditorPath) {
           const workDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'gameforge-template-'));
@@ -803,6 +804,13 @@ namespace GameForge {
             // ignore
           }
         }
+      } else if (needsPreview || needsShots || needsVideo) {
+        try {
+          // eslint-disable-next-line no-console
+          console.warn('[Templates] Auto media skipped: UNITY_AUTO_MEDIA is not enabled');
+        } catch {
+          // ignore
+        }
       }
     } catch (e) {
       try {
@@ -908,7 +916,7 @@ namespace GameForge {
   }
 
   async listPublic(query: any) {
-    const filter: any = { isPublic: true };
+    const filter: any = { isPublic: true, isActive: { $ne: false } };
     if (query.category) filter.category = String(query.category);
     if (query.q) {
       const q = String(query.q);

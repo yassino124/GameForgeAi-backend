@@ -7,14 +7,20 @@ import { CommonModule } from '../common/common.module';
 import { User, UserSchema } from '../users/entities/user.entity';
 import { GameProject, GameProjectSchema } from '../projects/schemas/game-project.schema';
 import { UnityTemplate, UnityTemplateSchema } from '../templates/schemas/unity-template.schema';
+import { Session, SessionSchema } from '../auth/schemas/session.schema';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { EmailModule } from '../email/email.module';
 
 @Module({
   imports: [
     CommonModule,
+    NotificationsModule,
+    EmailModule,
     MongooseModule.forFeature([
       { name: User.name, schema: UserSchema },
       { name: GameProject.name, schema: GameProjectSchema },
       { name: UnityTemplate.name, schema: UnityTemplateSchema },
+      { name: Session.name, schema: SessionSchema },
     ]),
   ],
   controllers: [AdminController, AdminUsersController],

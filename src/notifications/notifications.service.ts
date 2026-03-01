@@ -12,7 +12,12 @@ export class NotificationsService {
 
   async listForUser(userId: string) {
     const items = await this.notificationModel
-      .find({ userId })
+      .find({
+        $or: [
+          { userId },              // Individual notifications
+          { recipients: userId },  // Broadcast notifications (array contains)
+        ],
+      })
       .sort({ createdAt: -1 })
       .lean();
 

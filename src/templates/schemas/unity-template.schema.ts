@@ -23,6 +23,9 @@ export class UnityTemplate {
   @Prop({ default: true, index: true })
   isPublic: boolean;
 
+  @Prop({ default: true, index: true })
+  isActive: boolean;
+
   @Prop({ default: 0 })
   price: number;
 

@@ -5,8 +5,11 @@ export type NotificationDocument = Notification & Document;
 
 @Schema({ timestamps: true })
 export class Notification {
-  @Prop({ required: true, index: true })
-  userId: string;
+  @Prop({ required: false, index: true })
+  userId?: string;
+
+  @Prop({ type: [String], default: [] })
+  recipients?: string[];
 
   @Prop({ required: true })
   title: string;
@@ -27,3 +30,4 @@ export class Notification {
 export const NotificationSchema = SchemaFactory.createForClass(Notification);
 
 NotificationSchema.index({ userId: 1, isRead: 1, createdAt: -1 });
+NotificationSchema.index({ recipients: 1, createdAt: -1 });

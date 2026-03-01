@@ -1828,9 +1828,26 @@ namespace GameForgeAI {
       
       // Check if UNITY_EDITOR_PATH is set and exists
       if (!unityEditorPath.trim()) {
-        console.warn('[GAMEFORGE] UNITY_EDITOR_PATH not set, skipping build');
+        const errorMsg = 'Unity Editor path not configured (UNITY_EDITOR_PATH environment variable not set)';
+        console.error(`[GAMEFORGE] ${errorMsg}`);
+        await this.projectModel.updateOne(
+          { _id: projectId },
+          { $set: { status: 'failed', error: errorMsg, buildProgress: 100 } }
+        );
         endStep('unity_build');
-        return; // Skip build but don't fail
+        throw new Error(errorMsg);
+      }
+
+      // Verify Unity executable exists at the configured path
+      if (!fs.existsSync(unityEditorPath)) {
+        const errorMsg = `Unity Editor not found at: ${unityEditorPath}`;
+        console.error(`[GAMEFORGE] ${errorMsg}`);
+        await this.projectModel.updateOne(
+          { _id: projectId },
+          { $set: { status: 'failed', error: errorMsg, buildProgress: 100 } }
+        );
+        endStep('unity_build');
+        throw new Error(errorMsg);
       }
 
       const extractUnityErrorSummary = (out: string) => {

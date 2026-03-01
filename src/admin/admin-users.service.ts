@@ -2,6 +2,9 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { User, UserDocument } from '../users/entities/user.entity';
+import { GameProject, GameProjectDocument } from '../projects/schemas/game-project.schema';
+import { Session, SessionDocument } from '../auth/schemas/session.schema';
+import { NotificationsGateway } from '../notifications/notifications.gateway';
 
 export interface AdminUsersListParams {
   page?: number;
@@ -18,7 +21,12 @@ type ExportParams = Omit<AdminUsersListParams, 'page' | 'limit'>;
 
 @Injectable()
 export class AdminUsersService {
-  constructor(@InjectModel(User.name) private userModel: Model<UserDocument>) {}
+  constructor(
+    @InjectModel(User.name) private userModel: Model<UserDocument>,
+    @InjectModel(GameProject.name) private projectModel: Model<GameProjectDocument>,
+    @InjectModel(Session.name) private sessionModel: Model<SessionDocument>,
+    private readonly notificationsGateway: NotificationsGateway,
+  ) {}
 
   async list(params: AdminUsersListParams) {
     const page = Math.max(1, params.page ?? 1);
@@ -143,6 +151,26 @@ export class AdminUsersService {
     user.status = status;
     user.isActive = status === 'active';
     await user.save();
+
+    // Notify user and force disconnect if banned or suspended
+    if (status === 'banned' || status === 'suspended') {
+      try {
+        // Send notification before disconnecting
+        await this.notificationsGateway.sendNotificationToUser(id, {
+          title: status === 'banned' ? 'Account Banned' : 'Account Suspended',
+          message: status === 'banned' 
+            ? 'Your account has been banned by an administrator. It cannot be restored.'
+            : 'Your account has been suspended by an administrator. Please contact support.',
+          type: 'error',
+        });
+        // Force disconnect if user is online
+        this.notificationsGateway.forceDisconnectUser(id);
+      } catch (error) {
+        console.error(`[AdminUsers] Error sending notification to user ${id}:`, error);
+        // Don't throw - continue with response even if notification fails
+      }
+    }
+
     const u = user.toObject() as any;
     return {
       _id: u._id?.toString(),
@@ -169,6 +197,80 @@ export class AdminUsersService {
     user.status = 'suspended';
     await user.save();
     return { message: 'User deleted successfully' };
+  }
+
+  async getUserProjects(userId: string) {
+    // Verify user exists
+    const user = await this.userModel.findOne({ _id: userId, $or: [{ deletedAt: null }, { deletedAt: { $exists: false } }] });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Get user's projects
+    const projects = await this.projectModel
+      .find({ ownerId: userId })
+      .select('_id title description status createdAt')
+      .sort({ createdAt: -1 })
+      .limit(10)
+      .lean();
+
+    return projects.map((p: any) => ({
+      _id: p._id?.toString(),
+      id: p._id?.toString(),
+      title: p.title,
+      description: p.description,
+      status: p.status || 'unknown',
+      createdAt: p.createdAt,
+    }));
+  }
+
+  async getUserActivity(userId: string) {
+    // Verify user exists
+    const user = await this.userModel.findOne({ _id: userId, $or: [{ deletedAt: null }, { deletedAt: { $exists: false } }] });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Get user's recent projects
+    const projects = await this.projectModel
+      .find({ ownerId: userId })
+      .select('_id title status createdAt updatedAt')
+      .sort({ updatedAt: -1 })
+      .limit(5)
+      .lean();
+
+    // Get user's recent login history (sessions)
+    const sessions = await this.sessionModel
+      .find({ userId: userId, isActive: true })
+      .select('_id browser os location createdAt')
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .lean();
+
+    // Combine activities: projects and login history
+    const activity = [
+      // Map projects
+      ...projects.map((p: any) => ({
+        id: p._id?.toString(),
+        type: 'project_activity',
+        title: `Project: ${p.title}`,
+        description: p.status ? `Status: ${p.status}` : undefined,
+        timestamp: p.updatedAt || p.createdAt,
+      })),
+      // Map login sessions
+      ...sessions.map((s: any) => ({
+        id: s._id?.toString(),
+        type: 'login',
+        title: 'Login Activity',
+        description: `Browser: ${s.browser || 'Unknown'} | OS: ${s.os || 'Unknown'} | Location: ${s.location || 'Unknown'}`,
+        timestamp: s.createdAt,
+      })),
+    ]
+      // Sort by timestamp descending and take top 5
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      .slice(0, 5);
+
+    return activity;
   }
 
   async exportCsv(params: ExportParams) {

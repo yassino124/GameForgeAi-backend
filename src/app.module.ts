@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
@@ -15,6 +16,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import configuration from './config/configuration';
+import { StatusCheckGuard } from './common/guards/status-check.guard';
 
 @Module({
   imports: [
@@ -43,6 +45,12 @@ import configuration from './config/configuration';
     NotificationsModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      provide: APP_GUARD,
+      useClass: StatusCheckGuard,
+    },
+  ],
 })
 export class AppModule {}

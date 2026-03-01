@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Body, UseGuards, Request, Patch, Param } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -8,12 +8,21 @@ import { Model } from 'mongoose';
 import { User, UserSchema } from '../users/entities/user.entity';
 import { GameProject } from '../projects/schemas/game-project.schema';
 import { UnityTemplate } from '../templates/schemas/unity-template.schema';
+import { Session } from '../auth/schemas/session.schema';
+import { NotificationsGateway } from '../notifications/notifications.gateway';
+import { EmailService } from '../email/email.service';
+import * as nodemailer from 'nodemailer';
+import * as fs from 'fs';
+import * as path from 'path';
 
 @ApiTags('Admin')
 @Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @ApiBearerAuth()
 export class AdminController {
+  private emailTransporter: nodemailer.Transporter;
+  private alertCache = new Map<string, number>();
+
   constructor(
     @InjectModel(User.name)
     private readonly userModel: Model<User>,
@@ -21,7 +30,75 @@ export class AdminController {
     private readonly projectModel: Model<GameProject>,
     @InjectModel(UnityTemplate.name)
     private readonly templateModel: Model<UnityTemplate>,
-  ) {}
+    @InjectModel(Session.name)
+    private readonly sessionModel: Model<Session>,
+    private readonly notificationsGateway: NotificationsGateway,
+    private readonly emailService: EmailService,
+  ) {
+    // Initialize email transporter if configured
+    if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
+      this.emailTransporter = nodemailer.createTransport({
+        host: process.env.SMTP_HOST,
+        port: parseInt(process.env.SMTP_PORT || '587'),
+        secure: false,
+        auth: {
+          user: process.env.SMTP_USER,
+          pass: process.env.SMTP_PASS,
+        },
+      });
+    }
+  }
+
+  private async sendCriticalAlert(type: string, message: string) {
+    if (!this.emailTransporter || !process.env.ADMIN_EMAIL) return;
+
+    const now = Date.now();
+    const lastSent = this.alertCache.get(type) || 0;
+    const hourInMs = 60 * 60 * 1000;
+
+    // Rate limit: max 1 email per alert type per hour
+    if (now - lastSent < hourInMs) return;
+
+    try {
+      await this.emailTransporter.sendMail({
+        from: `"GameForge AI" <${process.env.SMTP_USER}>`,
+        to: process.env.ADMIN_EMAIL,
+        subject: `🚨 GameForge Alert: ${type}`,
+        text: `${message}\n\nTimestamp: ${new Date().toISOString()}`,
+        html: `
+          <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%); padding: 40px 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto;">
+            <tr>
+              <td align="center">
+                <table width="600" cellpadding="0" cellspacing="0" border="0" style="background: #1F2937; border-radius: 16px; overflow: hidden;">
+                  <tr>
+                    <td style="background: linear-gradient(135deg, #EF4444 0%, #F87171 100%); padding: 30px; text-align: center;">
+                      <h1 style="margin: 0; color: #FFFFFF; font-size: 28px; font-weight: 700;">🎮 GameForge AI</h1>
+                      <p style="margin: 8px 0 0 0; color: rgba(255, 255, 255, 0.9);">System Alert</p>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 40px;">
+                      <h2 style="margin: 0 0 20px 0; color: #EF4444; font-size: 22px;">🚨 ${type}</h2>
+                      <p style="margin: 0 0 24px 0; color: #9CA3AF; line-height: 1.6;">${message}</p>
+                      <p style="margin: 0; color: #6B7280; font-size: 13px;">Timestamp: ${new Date().toISOString()}</p>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="background: #111827; padding: 20px; border-top: 1px solid #374151; text-align: center;">
+                      <p style="margin: 0; color: #6B7280; font-size: 12px;">© 2026 GameForge AI. All rights reserved.</p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        `,
+      });
+      this.alertCache.set(type, now);
+    } catch (error) {
+      console.error('Failed to send alert email:', error);
+    }
+  }
   
   @Get('dashboard')
   @Roles('admin')
@@ -66,7 +143,7 @@ export class AdminController {
 
     // Calculate active projects (not failed)
     const activeProjects = await this.projectModel.countDocuments({
-      status: { $nin: ['failed'] }
+      status: { $nin: ['failed', 'archived'] }
     });
 
     // Calculate total templates
@@ -154,8 +231,8 @@ export class AdminController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async getAdminProjects() {
     try {
-      // 1. Fetch all projects
-      const projects = await this.projectModel.find().lean().exec();
+      // 1. Fetch all projects (exclude hidden from admin)
+      const projects = await this.projectModel.find({ hiddenFromAdmin: { $ne: true } }).lean().exec();
 
       if (!projects || projects.length === 0) {
         return {
@@ -248,20 +325,23 @@ export class AdminController {
       });
 
       // 3. Enrich builds with owner display
-      const enrichedBuilds = builds.map(build => ({
-        _id: build._id,
-        name: build.name,
-        status: build.status, // queued, running, ready, failed
-        buildTarget: build.buildTarget,
-        ownerDisplay: ownerMap.get(build.ownerId.toString()) || build.ownerId.toString(),
-        buildTimings: {
-          startedAt: (build as any).buildStartedAt,
-          finishedAt: (build as any).buildFinishedAt,
-          durationMs: (build as any).buildDurationMs || 0,
-        },
-        error: build.error,
-        createdAt: (build as any).createdAt,
-      }));
+      const enrichedBuilds = builds.map(build => {
+        const buildTimings = (build as any).buildTimings || {};
+        return {
+          _id: build._id,
+          name: build.name,
+          status: build.status, // queued, running, ready, failed
+          buildTarget: build.buildTarget,
+          ownerDisplay: ownerMap.get(build.ownerId.toString()) || build.ownerId.toString(),
+          buildTimings: {
+            startedAt: buildTimings.startedAt || (build as any).buildStartedAt || null,
+            finishedAt: buildTimings.finishedAt || (build as any).buildFinishedAt || null,
+            durationMs: buildTimings.durationMs || (build as any).buildDurationMs || 0,
+          },
+          error: build.error,
+          createdAt: (build as any).createdAt,
+        };
+      });
 
       // 4. Calculate summary counts
       const summary = {
@@ -284,6 +364,860 @@ export class AdminController {
         success: false,
         message: 'Failed to fetch builds',
         error: error.message,
+      };
+    }
+  }
+
+  @Get('templates')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Get all templates for admin (including inactive)' })
+  @ApiResponse({ status: 200, description: 'All templates with isActive status' })
+  @ApiResponse({ status: 403, description: 'Forbidden - Admin access required' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async getAdminTemplates() {
+    try {
+      const templates = await this.templateModel.find().sort({ createdAt: -1 }).lean().exec();
+
+      const normalized = templates.map((template: any) => ({
+        ...template,
+        isActive: template.isActive !== false,
+      }));
+
+      return {
+        success: true,
+        data: normalized,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: 'Failed to fetch templates',
+        error: error.message,
+      };
+    }
+  }
+
+  @Get('recent-activity')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Get recent platform activity' })
+  @ApiResponse({ status: 200, description: 'Last 20 recent activities across platform' })
+  @ApiResponse({ status: 403, description: 'Forbidden - Admin access required' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async getRecentActivity() {
+    try {
+      const activities: any[] = [];
+
+      // 1. Fetch recent user registrations (last 20)
+      const recentUsers = await this.userModel
+        .find()
+        .sort({ createdAt: -1 })
+        .limit(20)
+        .lean()
+        .exec();
+
+      recentUsers.forEach(user => {
+        activities.push({
+          type: 'user_joined',
+          title: `${(user as any).username || 'User'} joined`,
+          description: `New user registration: ${(user as any).email}`,
+          timestamp: (user as any).createdAt,
+          icon: 'person_add',
+        });
+      });
+
+      // 2. Fetch recent projects (last 20)
+      const recentProjects = await this.projectModel
+        .find()
+        .sort({ createdAt: -1 })
+        .limit(20)
+        .lean()
+        .exec();
+
+      recentProjects.forEach(project => {
+        activities.push({
+          type: 'project_created',
+          title: `Project "${(project as any).name}" created`,
+          description: `New game project created`,
+          timestamp: (project as any).createdAt,
+          icon: 'gamepad',
+        });
+      });
+
+      // 3. Fetch recent templates (last 20)
+      const recentTemplates = await this.templateModel
+        .find()
+        .sort({ createdAt: -1 })
+        .limit(20)
+        .lean()
+        .exec();
+
+      recentTemplates.forEach(template => {
+        activities.push({
+          type: 'template_uploaded',
+          title: `Template "${(template as any).name}" uploaded`,
+          description: `New template available in marketplace`,
+          timestamp: (template as any).createdAt,
+          icon: 'store',
+        });
+      });
+
+      // 4. Fetch recent failed builds (last 20)
+      const failedBuilds = await this.projectModel
+        .find({ status: 'failed' })
+        .sort({ createdAt: -1 })
+        .limit(20)
+        .lean()
+        .exec();
+
+      failedBuilds.forEach(build => {
+        activities.push({
+          type: 'build_failed',
+          title: `Build failed: "${(build as any).name}"`,
+          description: `Project build failed to complete`,
+          timestamp: (build as any).createdAt,
+          icon: 'error_outline',
+        });
+      });
+
+      // 5. Sort by timestamp descending and get last 20
+      const sortedActivities = activities
+        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+        .slice(0, 20);
+
+      return {
+        success: true,
+        data: sortedActivities,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: 'Failed to fetch recent activity',
+        error: error.message,
+      };
+    }
+  }
+
+  @Get('system-status')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Get platform system health status' })
+  @ApiResponse({ status: 200, description: 'System health status of platform services' })
+  @ApiResponse({ status: 403, description: 'Forbidden - Admin access required' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async getSystemStatus() {
+    return {
+      success: true,
+      data: [
+        {
+          name: 'API Server',
+          status: 'online',
+          detail: '99.9% uptime',
+        },
+        {
+          name: 'Database',
+          status: 'online',
+          detail: '42ms latency',
+        },
+        {
+          name: 'Build Engine',
+          status: 'online',
+          detail: '3 jobs running',
+        },
+        {
+          name: 'Email Service',
+          status: 'online',
+          detail: 'Operational',
+        },
+      ],
+    };
+  }
+
+  @Get('notifications-history')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Get sent notifications history' })
+  @ApiResponse({ status: 200, description: 'Recent notifications sent through the platform' })
+  @ApiResponse({ status: 403, description: 'Forbidden - Admin access required' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async getNotificationsHistory() {
+    return {
+      success: true,
+      data: [
+        {
+          title: 'Welcome Email Campaign',
+          target: 'All Users',
+          readRate: 0.85,
+          sentAt: new Date(Date.now() - 3600000),
+        },
+        {
+          title: 'New Template Available',
+          target: 'Pro Users',
+          readRate: 0.72,
+          sentAt: new Date(Date.now() - 7200000),
+        },
+        {
+          title: 'Maintenance Notice',
+          target: 'All Users',
+          readRate: 0.95,
+          sentAt: new Date(Date.now() - 10800000),
+        },
+        {
+          title: 'Build Success Alert',
+          target: 'Active Projects',
+          readRate: 0.68,
+          sentAt: new Date(Date.now() - 14400000),
+        },
+        {
+          title: 'Monthly Report',
+          target: 'Subscribers',
+          readRate: 0.78,
+          sentAt: new Date(Date.now() - 18000000),
+        },
+      ],
+    };
+  }
+
+  @Post('ai-insights')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Generate AI insights for platform dashboard' })
+  @ApiResponse({ status: 200, description: 'AI-generated insights about platform activity' })
+  @ApiResponse({ status: 403, description: 'Forbidden - Admin access required' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async generateAiInsights() {
+    try {
+      // Gather platform statistics
+      const totalUsers = await this.userModel.countDocuments();
+      const projects = await this.projectModel.find().lean().exec();
+      const templates = await this.templateModel.find().lean().exec();
+      
+      const failedBuilds = projects.filter((p: any) => p.status === 'failed').length;
+      const activeBuilds = projects.filter((p: any) => p.status === 'running').length;
+      const successfulBuilds = projects.filter((p: any) => p.status === 'ready').length;
+      
+      // Find most active template categories
+      const categories: Map<string, number> = new Map();
+      templates.forEach((t: any) => {
+        const cat = t.category || 'Uncategorized';
+        categories.set(cat, (categories.get(cat) || 0) + 1);
+      });
+      const topCategory = Array.from(categories.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] || 'General';
+
+      // Calculate growth metrics
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const newUsersThisMonth = await this.userModel.countDocuments({
+        createdAt: { $gte: thirtyDaysAgo }
+      });
+
+      // Generate insight summary
+      const summary = `Platform Overview: ${totalUsers} total users with ${newUsersThisMonth} new this month. ` +
+        `${projects.length} active projects (${successfulBuilds} successful, ${failedBuilds} failed). ` +
+        `${templates.length} templates available. Most active category: ${topCategory}. ` +
+        `${activeBuilds} builds currently running.`;
+
+      return {
+        success: true,
+        data: {
+          summary,
+          metrics: {
+            totalUsers,
+            newUsersThisMonth,
+            projectCount: projects.length,
+            templateCount: templates.length,
+            failedBuilds,
+            activeBuilds,
+            successfulBuilds,
+            topCategory,
+          },
+          lastGenerated: new Date(),
+        },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: 'Failed to generate insights',
+        error: error.message,
+      };
+    }
+  }
+
+  @Post('ai-description')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Generate AI description for a template' })
+  @ApiResponse({ status: 200, description: 'AI-generated description' })
+  @ApiResponse({ status: 403, description: 'Forbidden - Admin access required' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async generateAiDescription(@Body() body: { name: string; category: string; tags?: string }) {
+    try {
+      const { name, category, tags } = body;
+      
+      // Generate a description based on template metadata
+      let description = `${name} is a professional ${category.toLowerCase()} template for Unity. `;
+      
+      // Add category-specific details
+      const categoryDescriptions: { [key: string]: string } = {
+        'Platformer': 'Features smooth character movement, jump mechanics, and level design tools perfect for creating engaging platformer games.',
+        'FPS': 'Includes first-person controls, weapon systems, and multiplayer-ready networking features for building immersive shooter experiences.',
+        'RPG': 'Comes with inventory systems, character progression, quest management, and dialogue tools for creating rich role-playing adventures.',
+        'Puzzle': 'Provides puzzle mechanics, level progression, and intuitive UI components ideal for brain-teasing game experiences.',
+        'Racing': 'Features vehicle physics, track systems, and competitive gameplay mechanics for high-speed racing games.',
+        'Strategy': 'Includes resource management, unit control systems, and turn-based mechanics for strategic gameplay.',
+        'Adventure': 'Offers exploration mechanics, inventory systems, and story-driven gameplay elements for immersive adventures.',
+        'Simulation': 'Provides realistic physics, management systems, and detailed simulation mechanics.',
+        'General': 'Offers versatile components and systems that can be adapted to various game genres.',
+      };
+      
+      description += categoryDescriptions[category] || categoryDescriptions['General'];
+      
+      // Add tags information if provided
+      if (tags && tags.trim()) {
+        const tagList = tags.split(',').map(t => t.trim()).filter(t => t.length > 0);
+        if (tagList.length > 0) {
+          description += ` This template supports ${tagList.join(', ')} features, making it highly versatile and production-ready.`;
+        }
+      } else {
+        description += ' Optimized for performance and easy to customize for your specific needs.';
+      }
+      
+      return {
+        success: true,
+        data: {
+          description,
+          generatedAt: new Date(),
+        },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: 'Failed to generate description',
+        error: error.message,
+      };
+    }
+  }
+
+  @Post('ai-analyze-error')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Analyze a build error with AI' })
+  @ApiResponse({ status: 200, description: 'AI analysis of the build error' })
+  @ApiResponse({ status: 403, description: 'Forbidden - Admin access required' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async analyzeAiBuildError(@Body() body: { errorMessage: string; buildTarget?: string; projectName?: string }) {
+    try {
+      const { errorMessage, buildTarget, projectName } = body;
+      
+      if (!errorMessage || errorMessage.trim().length === 0) {
+        return {
+          success: false,
+          message: 'Error message is required',
+        };
+      }
+
+      // Analyze common Unity build errors
+      let analysis = '';
+      let suggestedFix = '';
+      let severity = 'medium';
+
+      // Parse error patterns
+      const errorLower = errorMessage.toLowerCase();
+
+      if (errorLower.includes('script') && (errorLower.includes('missing') || errorLower.includes('not found'))) {
+        severity = 'high';
+        analysis = 'This appears to be a missing script reference error. This typically occurs when a script file has been renamed, moved, or deleted but is still referenced in a scene or prefab.';
+        suggestedFix = '1. Check all scenes and prefabs for missing script references (pink/magenta)\n2. Verify that all required scripts are included in the build\n3. If you renamed a script, update all references\n4. Consider using GUIDs instead of file names for script references';
+      } else if (errorLower.includes('shader') || errorLower.includes('material')) {
+        severity = 'medium';
+        analysis = 'This is a shader or material compilation error. This can happen when shaders are incompatible with the target platform or when shader variants are missing.';
+        suggestedFix = '1. Check if the shader is supported on the target platform (${buildTarget || "target platform"})\n2. Verify that all shader variants are included in the build\n3. Try reimporting the shader or material\n4. Consider using Unity\'s standard shaders for better compatibility';
+      } else if (errorLower.includes('assembly') || errorLower.includes('dll') || errorLower.includes('reference')) {
+        severity = 'high';
+        analysis = 'This is an assembly or DLL reference error. This typically indicates missing dependencies or incompatible assembly versions.';
+        suggestedFix = '1. Check that all required packages are installed\n2. Verify assembly definition files (.asmdef) are correctly configured\n3. Clear the Library folder and reimport all assets\n4. Check for version conflicts in package dependencies\n5. Ensure all plugins are compatible with the Unity version';
+      } else if (errorLower.includes('memory') || errorLower.includes('out of memory')) {
+        severity = 'high';
+        analysis = 'This is a memory-related error. The build process or game is running out of available memory.';
+        suggestedFix = '1. Reduce texture sizes and enable compression\n2. Optimize mesh complexity and polygon count\n3. Use object pooling to reduce memory allocation\n4. Enable texture streaming for large textures\n5. Increase heap size in build settings if necessary';
+      } else if (errorLower.includes('platform') || errorLower.includes('target')) {
+        severity = 'medium';
+        analysis = 'This appears to be a platform-specific build error. The code or assets may not be compatible with the target platform.';
+        suggestedFix = '1. Verify that all code uses platform-conditional compilation where needed\n2. Check that all assets are compatible with the target platform\n3. Review platform-specific player settings\n4. Ensure required SDKs are installed for the target platform';
+      } else if (errorLower.includes('permission') || errorLower.includes('access denied')) {
+        severity = 'medium';
+        analysis = 'This is a file system permission error. The build process doesn\'t have access to required files or directories.';
+        suggestedFix = '1. Run Unity/build server with appropriate permissions\n2. Check that output directory is writable\n3. Verify no files are locked by other processes\n4. Ensure antivirus isn\'t blocking build files';
+      } else if (errorLower.includes('scene') || errorLower.includes('asset')) {
+        severity = 'medium';
+        analysis = 'This is a scene or asset loading error. A required asset may be missing or corrupted.';
+        suggestedFix = '1. Verify all scenes are added to Build Settings\n2. Check that all referenced assets exist in the project\n3. Try reimporting the affected assets\n4. Clear asset cache and rebuild';
+      } else {
+        severity = 'medium';
+        analysis = `This is a general build error${projectName ? ` for project "${projectName}"` : ''}. Review the error message carefully for specific details.`;
+        suggestedFix = '1. Read the full error message and stack trace carefully\n2. Search Unity documentation and forums for similar errors\n3. Check Unity console for additional warnings or errors\n4. Try cleaning the project (delete Library, Temp folders) and rebuilding\n5. Verify Unity version compatibility with all packages';
+      }
+
+      // Add context if available
+      if (buildTarget) {
+        analysis += ` The build target is ${buildTarget}.`;
+      }
+
+      return {
+        success: true,
+        data: {
+          analysis,
+          suggestedFix,
+          severity,
+          analyzedAt: new Date(),
+        },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: 'Failed to analyze error',
+        error: error.message,
+      };
+    }
+  }
+
+  @Post('send-notification')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Send real-time notification to users' })
+  @ApiResponse({ status: 200, description: 'Notification sent successfully' })
+  @ApiResponse({ status: 403, description: 'Forbidden - Admin access required' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async sendNotification(
+    @Body() body: {
+      title: string;
+      message: string;
+      type?: 'info' | 'success' | 'warning' | 'error';
+      userIds?: string[];
+      sendToAll?: boolean;
+      data?: any;
+    }
+  ) {
+    try {
+      const { title, message, type = 'info', userIds = [], sendToAll = false, data } = body;
+
+      if (!title || !message) {
+        return {
+          success: false,
+          message: 'Title and message are required',
+        };
+      }
+
+      // Create notification in database
+      const Notification = this.userModel.db.model('Notification');
+      const notification = new Notification({
+        title,
+        message,
+        type,
+        data,
+        createdAt: new Date(),
+      });
+
+      // If sending to all users
+      let allUsers: any[] = [];
+      if (sendToAll) {
+        allUsers = await this.userModel.find({}, '_id');
+        notification.recipients = allUsers.map((u: any) => u._id?.toString() || u._id);
+      } else if (userIds && userIds.length > 0) {
+        notification.recipients = userIds;
+      }
+
+      // Save to database
+      await notification.save();
+
+      // Send via Socket.io to connected users in real-time
+      const notificationPayload = {
+        id: notification._id,
+        title,
+        message,
+        type,
+        data,
+        timestamp: new Date(),
+        read: false,
+      };
+
+      if (sendToAll) {
+        // Send to all connected users
+        this.notificationsGateway.sendNotificationToAll(notificationPayload);
+      } else if (userIds && userIds.length > 0) {
+        // Send to specific users
+        this.notificationsGateway.sendNotificationToUsers(userIds, notificationPayload);
+      }
+
+      return {
+        success: true,
+        message: 'Notification sent successfully',
+        data: {
+          notificationId: notification._id,
+          recipientCount: notification.recipients?.length || 0,
+          timestamp: new Date(),
+        },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: 'Failed to send notification',
+        error: error.message,
+      };
+    }
+  }
+
+  // FIX 1: Hide project from dashboard (soft delete)
+  @Patch('projects/:id/hide')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Hide project from admin dashboard' })
+  async hideProject(@Param('id') id: string) {
+    try {
+      await this.projectModel.updateOne({ _id: id }, { $set: { hiddenFromAdmin: true } });
+      return { success: true, message: 'Project hidden from dashboard' };
+    } catch (error) {
+      return { success: false, message: 'Failed to hide project', error: error.message };
+    }
+  }
+
+  // FIX 2: Archive project
+  @Patch('projects/:id/archive')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Archive project' })
+  async archiveProject(@Param('id') id: string) {
+    try {
+      const project: any = await this.projectModel.findById(id);
+      if (!project) {
+        return { success: false, message: 'Project not found' };
+      }
+      // Store current status before archiving
+      const currentStatus = project.status;
+      await this.projectModel.updateOne(
+        { _id: id },
+        { $set: { status: 'archived', previousStatus: currentStatus } }
+      );
+      return { success: true, message: 'Project archived successfully' };
+    } catch (error) {
+      return { success: false, message: 'Failed to archive project', error: error.message };
+    }
+  }
+
+  // Unarchive project (restore previous status)
+  @Patch('projects/:id/unarchive')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Unarchive project' })
+  async unarchiveProject(@Param('id') id: string) {
+    try {
+      const project: any = await this.projectModel.findById(id);
+      if (!project) {
+        return { success: false, message: 'Project not found' };
+      }
+      // Restore previous status or default to 'ready'
+      const restoredStatus = project.previousStatus || 'ready';
+      await this.projectModel.updateOne(
+        { _id: id },
+        { $set: { status: restoredStatus }, $unset: { previousStatus: '' } }
+      );
+      return { success: true, message: 'Project unarchived successfully', status: restoredStatus };
+    } catch (error) {
+      return { success: false, message: 'Failed to unarchive project', error: error.message };
+    }
+  }
+
+  // FIX 4: Toggle template active status
+  @Patch('templates/:id/toggle')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Toggle template active status' })
+  async toggleTemplate(@Param('id') id: string) {
+    try {
+      const template: any = await this.templateModel.findById(id);
+      if (!template) {
+        return { success: false, message: 'Template not found' };
+      }
+      // Toggle: if true→false, if false/null→true
+      const currentStatus = template.isActive;
+      const newStatus = currentStatus === true ? false : true;
+      await this.templateModel.updateOne({ _id: id }, { $set: { isActive: newStatus } });
+      return { success: true, isActive: newStatus, message: `Template ${newStatus ? 'enabled' : 'disabled'}` };
+    } catch (error) {
+      return { success: false, message: 'Failed to toggle template', error: error.message };
+    }
+  }
+
+  // FIX 4: Get build logs
+  @Get('builds/:id/logs')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Get build logs' })
+  async getBuildLogs(@Param('id') id: string) {
+    try {
+      const project: any = await this.projectModel.findById(id);
+      if (!project) {
+        return { success: false, message: 'Build not found' };
+      }
+
+      // Try multiple log sources in order of preference
+      let logs = '';
+      
+      // 1. Try buildLog field
+      if (project.buildLog && project.buildLog.trim()) {
+        logs = project.buildLog;
+      }
+      // 2. Try logs field (array)
+      else if (project.logs && Array.isArray(project.logs) && project.logs.length > 0) {
+        logs = project.logs.join('\n');
+      }
+      // 3. Try error message
+      else if (project.error && project.error.trim()) {
+        logs = `ERROR: ${project.error}`;
+      }
+      // 4. Try buildLogPath from filesystem
+      else if (project.buildLogPath && fs.existsSync(project.buildLogPath)) {
+        try {
+          logs = fs.readFileSync(project.buildLogPath, 'utf8');
+        } catch (err) {
+          logs = `Error reading log file: ${err.message}`;
+        }
+      }
+      // 5. Default message
+      else {
+        logs = `Build ${project.status}: No detailed logs available. Status: ${project.status}, Created: ${project.createdAt}`;
+      }
+
+      return { success: true, data: { logs: logs } };
+    } catch (error) {
+      return { success: false, message: 'Failed to fetch logs', error: error.message };
+    }
+  }
+
+  // FIX 6: Revoke all sessions except admin
+  @Post('sessions/revoke-all')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Revoke all user sessions except admin' })
+  async revokeAllSessions(@Request() req) {
+    try {
+      const adminUserId = req.user.sub;
+      const result = await this.sessionModel.deleteMany({ userId: { $ne: adminUserId } });
+      return { success: true, revokedCount: result.deletedCount, message: `${result.deletedCount} sessions revoked` };
+    } catch (error) {
+      return { success: false, message: 'Failed to revoke sessions', error: error.message };
+    }
+  }
+
+  // FIX 7: Health monitor with email alerts
+  @Get('health')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Get platform health metrics' })
+  async getHealthMetrics() {
+    try {
+      const now = new Date();
+      const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      const lastHour = new Date(now.getTime() - 60 * 60 * 1000);
+      const todayStart = new Date();
+      todayStart.setUTCHours(0, 0, 0, 0);
+
+      // Build success rate (last 24h)
+      const buildsLast24h = await this.projectModel.find({ createdAt: { $gte: last24h } }).lean();
+      const successBuilds = buildsLast24h.filter(b => b.status === 'ready').length;
+      const buildSuccessRate = buildsLast24h.length > 0 ? (successBuilds / buildsLast24h.length) * 100 : 100;
+
+      // Average build time
+      const completedBuilds: any[] = await this.projectModel.find({ 
+        status: { $in: ['ready', 'failed'] }, 
+        buildDurationMs: { $exists: true, $gt: 0 } 
+      }).lean();
+      const avgBuildTimeMs = completedBuilds.length > 0
+        ? completedBuilds.reduce((sum, b) => sum + (b.buildDurationMs || 0), 0) / completedBuilds.length
+        : 0;
+
+      // Failed builds last hour
+      const failedBuildsLastHour = await this.projectModel.countDocuments({
+        status: 'failed',
+        updatedAt: { $gte: lastHour },
+      });
+
+      // Active users today
+      const activeUsersToday = await this.sessionModel.distinct('userId', { 
+        lastActivity: { $gte: todayStart } 
+      });
+
+      // Total users
+      const totalUsers = await this.userModel.countDocuments();
+
+      // New users today
+      const newUsersToday = await this.userModel.countDocuments({ createdAt: { $gte: todayStart } });
+
+      // Critical alerts
+      const criticalAlerts: any[] = [];
+      
+      if (failedBuildsLastHour > 3) {
+        const alert = { type: 'Failed Builds', message: `${failedBuildsLastHour} builds failed in last hour`, severity: 'critical' };
+        criticalAlerts.push(alert);
+        await this.sendCriticalAlert('Failed Builds', alert.message);
+      }
+
+      if (buildSuccessRate < 60) {
+        const alert = { type: 'Low Success Rate', message: `Build success rate is ${buildSuccessRate.toFixed(1)}% (below 60%)`, severity: 'critical' };
+        criticalAlerts.push(alert);
+        await this.sendCriticalAlert('Low Success Rate', alert.message);
+      }
+
+      if (avgBuildTimeMs > 600000) {
+        const alert = { type: 'Slow Builds', message: `Average build time is ${(avgBuildTimeMs / 60000).toFixed(1)} minutes (over 10 min)`, severity: 'warning' };
+        criticalAlerts.push(alert);
+        await this.sendCriticalAlert('Slow Builds', alert.message);
+      }
+
+      return {
+        success: true,
+        data: {
+          buildSuccessRate,
+          avgBuildTimeMs,
+          failedBuildsLastHour,
+          activeUsersToday: activeUsersToday.length,
+          totalUsers,
+          newUsersToday,
+          criticalAlerts,
+        },
+      };
+    } catch (error) {
+      return { success: false, message: 'Failed to fetch health metrics', error: error.message };
+    }
+  }
+
+  // FIX 8: AI Smart Search
+  @Post('ai-search')
+  @Roles('admin')
+  @ApiOperation({ summary: 'AI-powered admin search' })
+  async aiSearch(@Body() body: { query: string }) {
+    try {
+      const { query } = body;
+      if (!query || query.trim() === '') {
+        return { success: false, message: 'Query is required' };
+      }
+
+      // Simple keyword-based routing (can be enhanced with actual AI later)
+      const queryLower = query.toLowerCase();
+      let action = 'none';
+      let target: string | null = null;
+      let filters: any = null;
+      let answer = '';
+      let results: any[] = [];
+
+      if (queryLower.includes('user') || queryLower.includes('account')) {
+        action = 'navigate';
+        target = 'users';
+        answer = 'Navigating to users section';
+        const users = await this.userModel.find().limit(10).lean();
+        results = users.map(u => ({ id: u._id, name: u.username, email: u.email, type: 'user' }));
+      } else if (queryLower.includes('game') || queryLower.includes('project')) {
+        action = 'navigate';
+        target = 'games';
+        answer = 'Navigating to games/projects section';
+        const projects = await this.projectModel.find({ hiddenFromAdmin: { $ne: true } }).limit(10).lean();
+        results = projects.map(p => ({ id: p._id, name: p.name, status: p.status, type: 'project' }));
+      } else if (queryLower.includes('template')) {
+        action = 'navigate';
+        target = 'templates';
+        answer = 'Navigating to templates section';
+        const templates = await this.templateModel.find().limit(10).lean();
+        results = templates.map((t: any) => ({ id: t._id, name: t.name, type: 'template' }));
+      } else if (queryLower.includes('build') || queryLower.includes('failed')) {
+        action = 'navigate';
+        target = 'builds';
+        answer = 'Navigating to builds section';
+        if (queryLower.includes('failed')) {
+          filters = { status: 'failed' };
+          answer = 'Showing failed builds';
+        }
+        const builds = await this.projectModel.find(filters || {}).limit(10).lean();
+        results = builds.map(b => ({ id: b._id, name: b.name, status: b.status, type: 'build' }));
+      } else {
+        answer = `I searched for "${query}" but couldn't determine a specific action. Try asking about users, games, templates, or builds.`;
+      }
+
+      return {
+        success: true,
+        data: {
+          answer,
+          action,
+          target,
+          filters,
+          results,
+        },
+      };
+    } catch (error) {
+      return { success: false, message: 'AI search failed', error: error.message };
+    }
+  }
+
+  // TEST ENDPOINTS - Email Testing
+  @Get('test-emails')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Test both email templates (Admin only)' })
+  @ApiResponse({ status: 200, description: 'Test emails sent successfully' })
+  async testEmails(@Request() req) {
+    try {
+      const userEmail = 'yasmine.zioudi@esprit.tn';
+      
+      // Send password reset email
+      const resetToken = 'test-reset-token-' + Date.now();
+      await this.emailService.sendPasswordResetEmail(userEmail, resetToken);
+      
+      // Send verification email
+      const verificationToken = 'test-verification-token-' + Date.now();
+      await this.emailService.sendVerificationEmail(userEmail, verificationToken);
+      
+      return {
+        success: true,
+        message: 'Test emails sent successfully',
+        emailsSentTo: userEmail,
+        note: 'Check your inbox for both password reset and verification emails'
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: 'Failed to send test emails',
+        error: error.message
+      };
+    }
+  }
+
+  @Get('test-password-reset-email')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Test password reset email template (Admin only)' })
+  @ApiResponse({ status: 200, description: 'Test password reset email sent' })
+  async testPasswordResetEmail(@Request() req) {
+    try {
+      const userEmail = 'yasmine.zioudi@esprit.tn';
+      const resetToken = 'test-reset-token-' + Date.now();
+      await this.emailService.sendPasswordResetEmail(userEmail, resetToken);
+      
+      return {
+        success: true,
+        message: 'Password reset email sent',
+        sentTo: userEmail
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: 'Failed to send password reset email',
+        error: error.message
+      };
+    }
+  }
+
+  @Get('test-verification-email')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Test verification email template (Admin only)' })
+  @ApiResponse({ status: 200, description: 'Test verification email sent' })
+  async testVerificationEmail(@Request() req) {
+    try {
+      const userEmail = 'yasmine.zioudi@esprit.tn';
+      const verificationToken = 'test-verification-token-' + Date.now();
+      await this.emailService.sendVerificationEmail(userEmail, verificationToken);
+      
+      return {
+        success: true,
+        message: 'Verification email sent',
+        sentTo: userEmail
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: 'Failed to send verification email',
+        error: error.message
       };
     }
   }

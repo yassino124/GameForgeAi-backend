@@ -97,6 +97,34 @@ export class AdminUsersController {
     };
   }
 
+  @Get(':id/projects')
+  @ApiOperation({ summary: 'Get user projects' })
+  @ApiResponse({ status: 200, description: 'User projects' })
+  @ApiResponse({ status: 404, description: 'User not found' })
+  @ApiResponse({ status: 403, description: 'Forbidden' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async getUserProjects(@Param('id') id: string) {
+    const projects = await this.adminUsersService.getUserProjects(id);
+    return {
+      success: true,
+      data: projects,
+    };
+  }
+
+  @Get(':id/activity')
+  @ApiOperation({ summary: 'Get user recent activity' })
+  @ApiResponse({ status: 200, description: 'User activity' })
+  @ApiResponse({ status: 404, description: 'User not found' })
+  @ApiResponse({ status: 403, description: 'Forbidden' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async getUserActivity(@Param('id') id: string) {
+    const activity = await this.adminUsersService.getUserActivity(id);
+    return {
+      success: true,
+      data: activity,
+    };
+  }
+
   @Patch(':id/status')
   @ApiOperation({ summary: 'Update user status' })
   @ApiResponse({ status: 200, description: 'User updated' })
