@@ -11,6 +11,7 @@ import { UnityTemplate } from '../templates/schemas/unity-template.schema';
 import { Session } from '../auth/schemas/session.schema';
 import { NotificationsGateway } from '../notifications/notifications.gateway';
 import { EmailService } from '../email/email.service';
+import { AiService } from '../ai/ai.service';
 import * as nodemailer from 'nodemailer';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -34,6 +35,7 @@ export class AdminController {
     private readonly sessionModel: Model<Session>,
     private readonly notificationsGateway: NotificationsGateway,
     private readonly emailService: EmailService,
+    private readonly aiService: AiService,
   ) {
     // Initialize email transporter if configured
     if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
@@ -1076,69 +1078,355 @@ export class AdminController {
     }
   }
 
-  // FIX 8: AI Smart Search
+  private mapIntent(query: string): {
+    target: 'users' | 'games' | 'templates' | 'builds' | 'notifications' | 'overview' | null;
+    action: 'navigate' | 'none';
+    filters: { status?: string; search?: string } | null;
+  } {
+    const q = query.toLowerCase().trim();
+
+    // Smarter fuzzy matching with synonyms and partial matches
+    const containsAny = (keywords: string[]) => {
+      return keywords.some(keyword => {
+        // Check for exact match or word boundary match
+        const regex = new RegExp(`\\b${keyword}`, 'i');
+        return regex.test(q) || q.includes(keyword);
+      });
+    };
+
+    // Builds - broader keywords
+    if (containsAny(['build', 'compile', 'failed', 'error', 'broken', 'failing'])) {
+      return {
+        target: 'builds',
+        action: 'navigate',
+        filters: containsAny(['failed', 'error', 'broken', 'failing']) ? { status: 'failed' } : null,
+      };
+    }
+
+    // Users - broader keywords
+    if (containsAny(['user', 'account', 'member', 'player', 'ban', 'suspend', 'people', 'who'])) {
+      return { target: 'users', action: 'navigate', filters: null };
+    }
+
+    // Templates - broader keywords
+    if (containsAny(['template', 'preset', 'starter', 'boilerplate', 'theme'])) {
+      return { target: 'templates', action: 'navigate', filters: null };
+    }
+
+    // Games/Projects - broader keywords
+    if (containsAny(['game', 'project', 'app', 'creation'])) {
+      return { target: 'games', action: 'navigate', filters: null };
+    }
+
+    // Notifications - broader keywords
+    if (containsAny(['notif', 'message', 'alert', 'announcement'])) {
+      return { target: 'notifications', action: 'navigate', filters: null };
+    }
+
+    // Overview/Dashboard - broader keywords
+    if (containsAny(['overview', 'dashboard', 'stat', 'home', 'summary', 'total'])) {
+      return { target: 'overview', action: 'navigate', filters: null };
+    }
+
+    // If query contains numbers or "how many", assume overview
+    if (q.match(/\d+/) || containsAny(['how many', 'count', 'number'])) {
+      return { target: 'overview', action: 'navigate', filters: null };
+    }
+
+    // Default fallback to overview for informational queries
+    if (q.length > 0) {
+      return { target: 'overview', action: 'navigate', filters: null };
+    }
+
+    return { target: null, action: 'none', filters: null };
+  }
+
+  private async buildSearchData(
+    target: 'users' | 'games' | 'templates' | 'builds' | 'notifications' | 'overview' | null,
+    filters: { status?: string; search?: string } | null,
+  ) {
+    const [totalUsers, totalProjects, totalTemplates, totalBuilds, failedBuilds] = await Promise.all([
+      this.userModel.countDocuments(),
+      this.projectModel.countDocuments({ hiddenFromAdmin: { $ne: true } }),
+      this.templateModel.countDocuments(),
+      this.projectModel.countDocuments(),
+      this.projectModel.countDocuments({ status: 'failed' }),
+    ]);
+
+    const counts = {
+      users: totalUsers,
+      games: totalProjects,
+      templates: totalTemplates,
+      builds: totalBuilds,
+      failedBuilds,
+    };
+
+    let relevantItems: any[] = [];
+
+    if (target === 'users') {
+      relevantItems = await this.userModel
+        .find({}, { _id: 1, username: 1, email: 1, status: 1, role: 1 })
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .lean();
+    } else if (target === 'games') {
+      relevantItems = await this.projectModel
+        .find({ hiddenFromAdmin: { $ne: true } }, { _id: 1, name: 1, status: 1, updatedAt: 1 })
+        .sort({ updatedAt: -1 })
+        .limit(5)
+        .lean();
+    } else if (target === 'templates') {
+      relevantItems = await this.templateModel
+        .find({}, { _id: 1, name: 1, category: 1, isActive: 1, updatedAt: 1 })
+        .sort({ updatedAt: -1 })
+        .limit(5)
+        .lean();
+    } else if (target === 'builds') {
+      const buildFilter: any = {};
+      if (filters?.status) buildFilter.status = filters.status;
+      relevantItems = await this.projectModel
+        .find(buildFilter, { _id: 1, name: 1, status: 1, updatedAt: 1 })
+        .sort({ updatedAt: -1 })
+        .limit(5)
+        .lean();
+    }
+
+    return { counts, relevantItems };
+  }
+
+  private async generateAdminAiAnswer(query: string, contextData: any, target: string | null) {
+    const key = (process.env.ANTHROPIC_API_KEY || '').trim();
+
+    if (!key) {
+      if (target === 'builds') {
+        return `I found build-related data. Failed builds: ${contextData?.counts?.failedBuilds ?? 0}.`;
+      }
+      if (target === 'users') {
+        return `I found user-related data. Total users: ${contextData?.counts?.users ?? 0}.`;
+      }
+      if (target === 'templates') {
+        return `I found template-related data. Total templates: ${contextData?.counts?.templates ?? 0}.`;
+      }
+      if (target === 'games') {
+        return `I found project-related data. Total projects: ${contextData?.counts?.games ?? 0}.`;
+      }
+      return 'I analyzed your request with current platform data. Please try a more specific admin command.';
+    }
+
+    try {
+      const payload = {
+        model: 'claude-3-5-haiku-latest',
+        max_tokens: 180,
+        system: 'You are GameForge admin AI assistant. Be concise, max 2 sentences.',
+        messages: [
+          {
+            role: 'user',
+            content: `Query: ${query}\n\nPlatform context: ${JSON.stringify(contextData)}`,
+          },
+        ],
+      };
+
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': key,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        return 'I analyzed your request with live admin data, but external AI is temporarily unavailable.';
+      }
+
+      const json: any = await res.json();
+      const answer = json?.content?.[0]?.text?.toString()?.trim();
+      if (answer && answer.length > 0) return answer;
+
+      return 'I processed your request and prepared the relevant admin data.';
+    } catch {
+      return 'I analyzed your request with live admin data, but external AI is temporarily unavailable.';
+    }
+  }
+
+  // FIX 8: AI Smart Search - Natural language understanding
   @Post('ai-search')
   @Roles('admin')
-  @ApiOperation({ summary: 'AI-powered admin search' })
-  async aiSearch(@Body() body: { query: string }) {
+  @ApiOperation({ summary: 'AI-powered admin search with natural language' })
+  async aiSearch(@Body() body: { query: string }, @Request() req) {
     try {
-      const { query } = body;
+      const query = body.query;
       if (!query || query.trim() === '') {
         return { success: false, message: 'Query is required' };
       }
 
-      // Simple keyword-based routing (can be enhanced with actual AI later)
-      const queryLower = query.toLowerCase();
-      let action = 'none';
-      let target: string | null = null;
-      let filters: any = null;
-      let answer = '';
-      let results: any[] = [];
+      // Skip slow database queries - use lightweight context
+      const platformContext = 'GameForge platform with users, games, templates, and builds.';
 
-      if (queryLower.includes('user') || queryLower.includes('account')) {
-        action = 'navigate';
-        target = 'users';
-        answer = 'Navigating to users section';
-        const users = await this.userModel.find().limit(10).lean();
-        results = users.map(u => ({ id: u._id, name: u.username, email: u.email, type: 'user' }));
-      } else if (queryLower.includes('game') || queryLower.includes('project')) {
-        action = 'navigate';
-        target = 'games';
-        answer = 'Navigating to games/projects section';
-        const projects = await this.projectModel.find({ hiddenFromAdmin: { $ne: true } }).limit(10).lean();
-        results = projects.map(p => ({ id: p._id, name: p.name, status: p.status, type: 'project' }));
-      } else if (queryLower.includes('template')) {
-        action = 'navigate';
-        target = 'templates';
-        answer = 'Navigating to templates section';
-        const templates = await this.templateModel.find().limit(10).lean();
-        results = templates.map((t: any) => ({ id: t._id, name: t.name, type: 'template' }));
-      } else if (queryLower.includes('build') || queryLower.includes('failed')) {
-        action = 'navigate';
-        target = 'builds';
-        answer = 'Navigating to builds section';
-        if (queryLower.includes('failed')) {
-          filters = { status: 'failed' };
-          answer = 'Showing failed builds';
-        }
-        const builds = await this.projectModel.find(filters || {}).limit(10).lean();
-        results = builds.map(b => ({ id: b._id, name: b.name, status: b.status, type: 'build' }));
-      } else {
-        answer = `I searched for "${query}" but couldn't determine a specific action. Try asking about users, games, templates, or builds.`;
+      // 2. Call AI with enhanced knowledge base
+      const systemPrompt = `You are FORGE, an intelligent AI admin assistant for GameForge, a game development platform.
+You have a friendly personality like Siri. You understand French and English naturally.
+
+GAMEFORGE ADMIN DASHBOARD - COMPLETE KNOWLEDGE BASE:
+
+ROUTES:
+- /admin/overview → Overview (stats, charts, AI insights, health monitor)
+- /admin/users → Users (list, search, suspend, ban, delete, export)
+- /admin/projects → Games (grid, archive, hide)
+- /admin/marketplace → Templates (grid/list, add, edit, toggle)
+- /admin/builds → Builds (table, logs, AI error analysis, retry)
+- /admin/notifications → Notifications (send to all/pro users)
+- /admin/settings → Settings (revoke sessions, maintenance mode)
+
+AVAILABLE ACTIONS:
+- Navigation: Go to any section by name
+- Filters on Users: status (active/suspended/banned), role (user/admin/developer), search by name/email
+- Filters on Builds: status (queued/pending/building/ready/failed)
+- Filters on Templates: category (platformer/fps/rpg/puzzle/general)
+- Filters on Games: status (queued/pending/building/ready/failed)
+- Modals: add_template, send_notification
+- Actions: suspend user, ban user, archive game, toggle template
+
+VAGUE INTENT MAPPING:
+- "erreurs/errors/problèmes" → builds with status:failed
+- "nouveau/new/recent" → overview recent activity
+- "stats/statistiques" → overview dashboard
+- "utilisateurs/users/membres" → users section
+- "jeux/games/projets" → games/projects section
+- "templates/modèles" → templates section
+- "notifications/alertes" → notifications section
+- "paramètres/settings/config" → settings section
+- "santé/health/status plateforme" → overview health monitor
+- A person name → search in users
+- A game name → search in games
+- A template type (fps/rpg/platformer) → filter templates by category
+
+RESPONSE FORMAT (STRICT JSON ONLY):
+{
+  "answer": "Natural response in same language as question. Include real numbers. Max 2 sentences.",
+  "action": "navigate" | "back" | "filter" | "open_modal" | "none",
+  "target": "users" | "games" | "templates" | "builds" | "notifications" | "overview" | null,
+  "filters": { "status": "...", "search": "...", "category": "..." } | null,
+  "modal": "add_template" | "send_notification" | null,
+  "speak": "Short sentence for text-to-speech (max 15 words)",
+  "confidence": 0.5
+}
+
+The "speak" field is what FORGE will say out loud. Keep it SHORT and natural like Siri.
+The "confidence" field (0.0 to 1.0) indicates how sure you are about the intent:
+- 1.0: Crystal clear ("show failed builds")
+- 0.8: Pretty clear ("build errors")
+- 0.6: Somewhat clear ("problems")
+- 0.3: Very vague ("things")
+- 0.0: No relation to dashboard ("trees", "pizza")
+
+Examples:
+  answer: "You have 5 users on the platform, 2 are admins."
+  speak: "You have 5 users. Showing your users now."
+  confidence: 0.95
+
+RULES:
+- ALWAYS respond with valid JSON only (no markdown code blocks)
+- ALWAYS include the "confidence" field (0.0 to 1.0)
+- ALWAYS include the "speak" field
+- *** CRITICAL: If you DON'T understand the query or it has NO relation to the dashboard:
+  - Set action to "none" 
+  - Set target to null
+  - Set confidence to 0.0-0.5
+  - Provide a helpful suggestion message
+  - Example: User says "trees" or "pizza" → action:none, confidence:0.0, speak:"I don't understand. Try asking about users or builds."
+- *** CRITICAL: NEVER default to action:'navigate' when unsure. Only navigate when intent is VERY CLEAR.
+- If confidence < 0.6, automatically force action to "none"
+- ALWAYS respond in same language as question
+- Keep "speak" field SHORT (max 15 words) and natural
+- Be friendly, efficient, and helpful. You're like Siri for the admin dashboard.`;
+
+      const userPrompt = `Admin question: "${query}"\n\nContext: ${platformContext}`;
+
+      // Call AI service with timeout
+      let aiResponse: string;
+      try {
+        const prompt = `${systemPrompt}\n\n${userPrompt}\n\nRespond with JSON only:`;
+        
+        // Add 5 second timeout
+        const aiPromise = this.aiService['_generateWithFallback']({ prompt });
+        const timeoutPromise = new Promise<string>((_, reject) => 
+          setTimeout(() => reject(new Error('AI timeout')), 5000)
+        );
+        
+        aiResponse = await Promise.race([aiPromise, timeoutPromise]);
+      } catch (error) {
+        // Fallback to fast local intent matching
+        const intent = this.mapIntent(query);
+        
+        return {
+          success: true,
+          data: {
+            answer: intent.target === 'builds' && intent.filters?.status === 'failed'
+              ? 'Showing failed builds.'
+              : intent.target === 'users'
+              ? 'Showing users list.'
+              : intent.target === 'games'
+              ? 'Showing games/projects.'
+              : intent.target === 'templates'
+              ? 'Showing templates.'
+              : 'Navigation ready.',
+            action: intent.action,
+            target: intent.target,
+            filters: intent.filters,
+            confidence: intent.action === 'navigate' ? 0.85 : 0.0,
+            speak: intent.action === 'navigate' ? 'Navigating now.' : 'I didn\'t understand that.',
+          },
+        };
       }
+
+      // Parse JSON response
+      let parsed: any;
+      try {
+        // Remove markdown code blocks if present
+        const clean = aiResponse.replace(/```json\n?|```\n?/g, '').trim();
+        parsed = JSON.parse(clean);
+      } catch (parseError) {
+        // If parsing fails, use fast fallback
+        const intent = this.mapIntent(query);
+        
+        parsed = {
+          answer: aiResponse.substring(0, 200),
+          action: intent.action,
+          target: intent.target,
+          filters: intent.filters,
+          confidence: intent.action === 'navigate' ? 0.85 : 0.0,
+          speak: intent.action === 'navigate' ? 'Navigating now.' : 'I didn\'t understand that.',
+        };
+      }
+
+      // Ensure proper structure
+      const confidence = parsed.confidence || 0;
+      
+      // CRITICAL: If confidence is too low, force action to 'none'
+      const action = confidence < 0.6 ? 'none' : (parsed.action || 'none');
+      const target = confidence < 0.6 ? null : (parsed.target || null);
+      
+      const result = {
+        answer: parsed.answer || 'I didn\'t understand that. Try asking about users, builds, or templates.',
+        action: action,
+        target: target,
+        filters: action === 'none' ? null : (parsed.filters || null),
+        confidence: confidence,
+        speak: parsed.speak || 'I didn\'t understand. Try again.',
+      };
 
       return {
         success: true,
-        data: {
-          answer,
-          action,
-          target,
-          filters,
-          results,
-        },
+        data: result,
       };
     } catch (error) {
-      return { success: false, message: 'AI search failed', error: error.message };
+      return {
+        success: false,
+        message: 'AI search failed',
+        error: error.message,
+      };
     }
   }
 

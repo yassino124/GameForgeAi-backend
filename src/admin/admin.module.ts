@@ -10,12 +10,14 @@ import { UnityTemplate, UnityTemplateSchema } from '../templates/schemas/unity-t
 import { Session, SessionSchema } from '../auth/schemas/session.schema';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { EmailModule } from '../email/email.module';
+import { AiModule } from '../ai/ai.module';
 
 @Module({
   imports: [
     CommonModule,
     NotificationsModule,
     EmailModule,
+    AiModule,
     MongooseModule.forFeature([
       { name: User.name, schema: UserSchema },
       { name: GameProject.name, schema: GameProjectSchema },
