@@ -141,11 +141,14 @@ export class ProjectsService {
     const prompt = (params.prompt || '').trim();
     if (!prompt) throw new BadRequestException('Prompt is required');
 
-    const isQuotaExceeded = (e: any) => {
+    const isRecoverableAiError = (e: any) => {
       const statusCode = Number(e?.getStatus?.() ?? e?.status ?? e?.statusCode);
       const resp = (typeof e?.getResponse === 'function' ? e.getResponse() : undefined) as any;
       const msg = (resp?.message ?? e?.message ?? '').toString().toLowerCase();
-      return statusCode === 429 && msg.includes('quota');
+      if (statusCode === 429 && msg.includes('quota')) return true;
+      if (msg.includes('gemini is not configured')) return true;
+      if (statusCode === 400 && (msg.includes('not configured') || msg.includes('api key'))) return true;
+      return false;
     };
 
     let aiData: any = {};
@@ -153,7 +156,7 @@ export class ProjectsService {
       const ai = await this.aiService.generateProjectDraft({ description: prompt, notes: undefined });
       aiData = (ai as any)?.data || {};
     } catch (e: any) {
-      if (!isQuotaExceeded(e)) throw e;
+      if (!isRecoverableAiError(e)) throw e;
       aiData = {};
     }
 
@@ -178,7 +181,7 @@ export class ProjectsService {
       const unityCfgRes = await this.aiService.generateUnityConfig({ prompt, templateName });
       unityCfg = (unityCfgRes as any)?.data || {};
     } catch (e: any) {
-      if (!isQuotaExceeded(e)) throw e;
+      if (!isRecoverableAiError(e)) throw e;
       unityCfg = {};
     }
 
