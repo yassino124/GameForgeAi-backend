@@ -13,6 +13,7 @@ import { AiGameOrchestratorModule } from './ai-game-orchestrator/ai-game-orchest
 import { CoachModule } from './coach/coach.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { ChallengesModule } from './challenges/challenges.module';
+import { GoalsModule } from './goals/goals.module';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import configuration from './config/configuration';
@@ -42,6 +43,7 @@ import configuration from './config/configuration';
     CoachModule,
     NotificationsModule,
     ChallengesModule,
+    GoalsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

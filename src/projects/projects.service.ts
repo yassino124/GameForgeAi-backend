@@ -1,4 +1,4 @@
-import {
+﻿import {
   BadRequestException,
   ForbiddenException,
   Injectable,
@@ -20,6 +20,7 @@ import { ProjectStorageService } from './project-storage.service';
 import { Asset, AssetDocument } from '../assets/schemas/asset.schema';
 import { LocalStorageService } from '../assets/local-storage.service';
 import { AiService } from '../ai/ai.service';
+import { GoalsService } from '../goals/goals.service';
 
 @Injectable()
 export class ProjectsService {
@@ -36,6 +37,7 @@ export class ProjectsService {
     private readonly assetStorage: LocalStorageService,
     private readonly projectStorage: ProjectStorageService,
     private readonly aiService: AiService,
+    private readonly goalsService: GoalsService,
   ) {}
 
   async getRuntimeConfig(ownerId: string, projectId: string) {
@@ -127,6 +129,8 @@ export class ProjectsService {
     } as any);
 
     this.runBuild(String(created?._id || '')).catch(() => null);
+    // -- Goal Tracker: increment projects goal
+    this.goalsService.incrementProgress(ownerId, 'projects').catch(() => null);
 
     return { success: true, data: created };
   }
@@ -249,6 +253,8 @@ export class ProjectsService {
 
     const projectId = String(created?._id || '');
     this.runBuild(projectId).catch(() => null);
+    // -- Goal Tracker: increment projects goal
+    this.goalsService.incrementProgress(params.ownerId, 'projects').catch(() => null);
     return { success: true, data: { projectId } };
   }
 

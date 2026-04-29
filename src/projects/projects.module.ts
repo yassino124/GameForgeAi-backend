@@ -10,6 +10,7 @@ import { Asset, AssetSchema } from '../assets/schemas/asset.schema';
 import { ProjectsController } from './projects.controller';
 import { ProjectsService } from './projects.service';
 import { ProjectStorageService } from './project-storage.service';
+import { GoalsModule } from '../goals/goals.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { ProjectStorageService } from './project-storage.service';
     TemplatesModule,
     AssetsModule,
     AiModule,
+    GoalsModule,
   ],
   controllers: [ProjectsController],
   providers: [ProjectsService, ProjectStorageService],
